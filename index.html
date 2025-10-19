@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบประกวด 1 ห้องเรียน 1 โครงงานคุณธรรม | สตรีพัทลุง</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #f4f6f9; /* Light background for the whole page */
+        }
+        .container-card {
+            background-color: white;
+            border-radius: 1.5rem; /* More rounded corners */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Soft shadow */
+            padding: 2rem;
+        }
+        .nav-button {
+            transition: all 0.3s ease;
+        }
+        .nav-button.active {
+            border-color: #10B981; /* Emerald green accent */
+            color: #10B981;
+            background-color: #ECFDF5;
+            font-weight: 600;
+        }
+        .nav-button:not(.active):hover {
+            background-color: #F3F4F6;
+        }
+        .btn-primary {
+            background-color: #3B82F6; /* Blue button */
+            transition: background-color 0.3s ease;
+        }
+        .btn-primary:hover {
+            background-color: #2563EB;
+        }
+        .input-style {
+            border-radius: 0.75rem;
+            border-color: #D1D5DB;
+            padding: 0.75rem 1rem;
+            transition: border-color 0.3s ease;
+        }
+        .input-style:focus {
+            border-color: #3B82F6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+        }
+    </style>
+    <script>
+        // กำหนดค่า URL และ ID ต่างๆ
+        const APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx5Pd97Pb14ajoDC1aUj942_mlrN11mc5lflmo38bW_dKjAnxeiocjutt-RDaW1TjdC/exec';
+        
+        // ฟังก์ชันสำหรับเปลี่ยนหน้า
+        function navigate(page) {
+            document.querySelectorAll('.page').forEach(el => el.classList.add('hidden'));
+            document.getElementById(page).classList.remove('hidden');
+            
+            document.querySelectorAll('.nav-button').forEach(el => el.classList.remove('active'));
+            document.getElementById('nav-' + page).classList.add('active');
+
+            // รีเซ็ตฟอร์มและสถานะเมื่อเปลี่ยนหน้า
+            document.getElementById('upload-form').reset();
+            document.getElementById('login-form').reset();
+            document.getElementById('check-form').reset();
+            document.getElementById('status-message').innerHTML = '';
+            document.getElementById('check-result').innerHTML = '';
+        }
+
+        // ฟังก์ชันแปลงไฟล์เป็น Base64
+        function getBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]); // เอาเฉพาะส่วน base64
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        // ------------------ 1. หน้าส่งข้อมูลการประกวด ------------------
+        async function handleSubmit(event) {
+            event.preventDefault();
+            const form = event.target;
+            const statusDiv = document.getElementById('status-message');
+            const saveButton = document.getElementById('save-button');
+
+            statusDiv.className = 'mt-4 p-3 rounded-xl bg-yellow-100 text-yellow-800 text-center';
+            statusDiv.innerHTML = 'กำลังประมวลผลและอัปโหลดไฟล์... โปรดรอสักครู่';
+            saveButton.disabled = true;
+
+            try {
+                const classLevel = form.classLevel.value;
+                const classNumber = form.classNumber.value;
+                const videoFile = form.videoFile.files[0];
+                const posterFile = form.posterFile.files[0];
+
+                if (!classLevel || !classNumber || !videoFile || !posterFile) {
+                    throw new Error("กรุณากรอกข้อมูลและเลือกไฟล์ให้ครบถ้วน");
+                }
+                
+                // ตรวจสอบขนาดไฟล์ (ตามที่ผู้ดูแลกำหนด)
+                // ตรวจสอบที่ฝั่ง Apps Script ด้วยจะปลอดภัยกว่า
+
+                const videoBase64 = await getBase64(videoFile);
+                const posterBase64 = await getBase64(posterFile);
+
+                const payload = {
+                    action: 'submitProject',
+                    classLevel: classLevel,
+                    classNumber: classNumber,
+                    video: videoBase64,
+                    videoName: videoFile.name,
+                    videoType: videoFile.type,
+                    poster: posterBase64,
+                    posterName: posterFile.name,
+                    posterType: posterFile.type
+                };
+
+                const response = await fetch(APP_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors', // Apps Script requires 'no-cors'
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams(payload)
+                });
+                
+                // เนื่องจากใช้ 'no-cors' จะไม่สามารถอ่าน response.json() ได้ตรงๆ
+                // ต้องเชื่อถือว่า Apps Script จะบันทึกข้อมูลสำเร็จและแสดงผลจากการโหลดหน้าจอที่ redirect มา
+
+                statusDiv.className = 'mt-4 p-3 rounded-xl bg-green-100 text-green-800 text-center';
+                statusDiv.innerHTML = 'บันทึกข้อมูลสำเร็จแล้ว! ข้อมูลอาจใช้เวลาประมวลผล 1-2 วินาที';
+                form.reset();
+
+            } catch (error) {
+                console.error("Error submitting form:", error);
+                statusDiv.className = 'mt-4 p-3 rounded-xl bg-red-100 text-red-800 text-center';
+                statusDiv.innerHTML = `เกิดข้อผิดพลาด: ${error.message}. โปรดลองอีกครั้ง`;
+            } finally {
+                saveButton.disabled = false;
+            }
+        }
+        
+        // ------------------ 2. หน้าตรวจสอบการส่ง ------------------
+        async function handleCheck(event) {
+            event.preventDefault();
+            const form = event.target;
+            const resultDiv = document.getElementById('check-result');
+            const checkButton = document.getElementById('check-button');
+
+            checkButton.disabled = true;
+            resultDiv.innerHTML = '<p class="text-center text-blue-600">กำลังตรวจสอบข้อมูล...</p>';
+            resultDiv.className = 'mt-4 p-4 rounded-xl bg-blue-50';
+
+            try {
+                const classLevel = form.checkClassLevel.value;
+                const classNumber = form.checkClassNumber.value;
+                
+                if (!classLevel || !classNumber) {
+                    throw new Error("กรุณาเลือกระดับชั้นและห้องเรียน");
+                }
+
+                const url = new URL(APP_SCRIPT_URL);
+                url.searchParams.append('action', 'checkSubmission');
+                url.searchParams.append('classLevel', classLevel);
+                url.searchParams.append('classNumber', classNumber);
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    if (data.isSubmitted) {
+                        resultDiv.className = 'mt-4 p-4 rounded-xl bg-green-100 text-green-800';
+                        resultDiv.innerHTML = `
+                            <p class="font-bold text-lg">✅ คุณได้ส่งข้อมูลการประกวดแล้ว</p>
+                            <p>วันที่ส่ง: ${data.timestamp}</p>
+                            <p>รายละเอียด: โครงงาน ${classLevel}/${classNumber} ได้รับการบันทึกในระบบแล้ว</p>
+                        `;
+                    } else {
+                        resultDiv.className = 'mt-4 p-4 rounded-xl bg-yellow-100 text-yellow-800';
+                        resultDiv.innerHTML = `
+                            <p class="font-bold text-lg">⚠️ คุณยังไม่ส่งข้อมูลการประกวด</p>
+                            <p>กรุณาไปที่หน้าส่งข้อมูลการประกวดเพื่อดำเนินการ</p>
+                        `;
+                    }
+                } else {
+                    throw new Error(data.message || 'การตรวจสอบล้มเหลว');
+                }
+
+            } catch (error) {
+                console.error("Error checking submission:", error);
+                resultDiv.className = 'mt-4 p-4 rounded-xl bg-red-100 text-red-800';
+                resultDiv.innerHTML = `<p class="font-bold text-lg">❌ เกิดข้อผิดพลาดในการตรวจสอบ</p><p>${error.message}</p>`;
+            } finally {
+                checkButton.disabled = false;
+            }
+        }
+        
+        // ------------------ 3. หน้าผู้ดูแล (Login) ------------------
+        async function handleLogin(event) {
+            event.preventDefault();
+            const form = event.target;
+            const messageDiv = document.getElementById('login-message');
+            const loginButton = document.getElementById('login-button');
+
+            loginButton.disabled = true;
+            messageDiv.innerHTML = '<p class="text-center text-blue-600">กำลังเข้าสู่ระบบ...</p>';
+            messageDiv.className = 'mt-4 p-2 rounded-xl bg-blue-50';
+
+            try {
+                const username = form.username.value;
+                const password = form.password.value;
+
+                const url = new URL(APP_SCRIPT_URL);
+                url.searchParams.append('action', 'adminLogin');
+                url.searchParams.append('username', username);
+                url.searchParams.append('password', password);
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    messageDiv.innerHTML = 'เข้าสู่ระบบสำเร็จ!';
+                    messageDiv.className = 'mt-4 p-2 rounded-xl bg-green-100 text-green-800';
+                    showAdminPanel(); // แสดงหน้าผู้ดูแล
+                } else {
+                    throw new Error(data.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+                }
+
+            } catch (error) {
+                console.error("Login error:", error);
+                messageDiv.className = 'mt-4 p-2 rounded-xl bg-red-100 text-red-800';
+                messageDiv.innerHTML = `❌ ${error.message}`;
+            } finally {
+                loginButton.disabled = false;
+            }
+        }
+        
+        // ------------------ 3. หน้าผู้ดูแล (Panel) ------------------
+        function showAdminPanel() {
+            document.getElementById('admin-login').classList.add('hidden');
+            document.getElementById('admin-panel').classList.remove('hidden');
+            fetchSettings();
+            fetchSubmissions();
+        }
+        
+        // ดึงข้อมูลการตั้งค่าขนาดไฟล์
+        async function fetchSettings() {
+            const settingsDiv = document.getElementById('admin-settings');
+            settingsDiv.innerHTML = '<p class="text-center text-blue-600">กำลังโหลดการตั้งค่า...</p>';
+
+            try {
+                const url = new URL(APP_SCRIPT_URL);
+                url.searchParams.append('action', 'getSettings');
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    document.getElementById('videoMaxSize').value = data.settings.videoMaxSize / (1024 * 1024);
+                    document.getElementById('posterMaxSize').value = data.settings.posterMaxSize / (1024 * 1024);
+                    settingsDiv.innerHTML = `
+                        <p class="text-green-600">โหลดการตั้งค่าสำเร็จ</p>
+                        <p class="text-sm text-gray-500">ขนาดไฟล์ที่บันทึกไว้: วิดีโอ ${data.settings.videoMaxSize / (1024 * 1024)} MB, โปสเตอร์ ${data.settings.posterMaxSize / (1024 * 1024)} MB</p>
+                    `;
+                } else {
+                    throw new Error(data.message || 'ดึงการตั้งค่าล้มเหลว');
+                }
+            } catch (error) {
+                console.error("Error fetching settings:", error);
+                settingsDiv.innerHTML = `<p class="text-red-600">❌ ดึงการตั้งค่าล้มเหลว: ${error.message}</p>`;
+            }
+        }
+        
+        // บันทึกข้อมูลการตั้งค่าขนาดไฟล์
+        async function saveSettings() {
+            const videoSizeMB = document.getElementById('videoMaxSize').value;
+            const posterSizeMB = document.getElementById('posterMaxSize').value;
+            const settingsDiv = document.getElementById('admin-settings');
+            const saveButton = document.getElementById('save-settings-button');
+            
+            saveButton.disabled = true;
+            settingsDiv.innerHTML = '<p class="text-center text-yellow-600">กำลังบันทึกการตั้งค่า...</p>';
+
+            try {
+                const videoMaxSize = videoSizeMB * 1024 * 1024;
+                const posterMaxSize = posterSizeMB * 1024 * 1024;
+                
+                const payload = {
+                    action: 'saveSettings',
+                    videoMaxSize: videoMaxSize,
+                    posterMaxSize: posterMaxSize
+                };
+
+                const response = await fetch(APP_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams(payload)
+                });
+                
+                settingsDiv.innerHTML = '<p class="text-center text-green-600">✅ บันทึกการตั้งค่าขนาดไฟล์สำเร็จ</p>';
+            } catch (error) {
+                console.error("Error saving settings:", error);
+                settingsDiv.innerHTML = `<p class="text-red-600">❌ บันทึกการตั้งค่าล้มเหลว: ${error.message}</p>`;
+            } finally {
+                saveButton.disabled = false;
+            }
+        }
+        
+        // ดึงข้อมูลการส่งทั้งหมด
+        async function fetchSubmissions() {
+            const tableBody = document.getElementById('submission-table-body');
+            const loadingRow = `<tr><td colspan="8" class="text-center py-4 text-blue-600">กำลังโหลดข้อมูล...</td></tr>`;
+            tableBody.innerHTML = loadingRow;
+
+            try {
+                const url = new URL(APP_SCRIPT_URL);
+                url.searchParams.append('action', 'getAllSubmissions');
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    renderSubmissionTable(data.submissions);
+                } else {
+                    throw new Error(data.message || 'ดึงข้อมูลล้มเหลว');
+                }
+            } catch (error) {
+                console.error("Error fetching submissions:", error);
+                tableBody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-red-600">❌ เกิดข้อผิดพลาดในการโหลดข้อมูล: ${error.message}</td></tr>`;
+            }
+        }
+        
+        // แสดงผลตารางการส่งข้อมูล
+        function renderSubmissionTable(submissions) {
+            const tableBody = document.getElementById('submission-table-body');
+            tableBody.innerHTML = '';
+            
+            if (submissions.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-gray-500">ยังไม่มีการส่งข้อมูลการประกวด</td></tr>`;
+                return;
+            }
+
+            submissions.forEach((row, index) => {
+                const tr = document.createElement('tr');
+                tr.className = index % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+                tr.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${index + 1}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${row[1]}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row[2]}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">${row[0]}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm">
+                        <a href="${row[3]}" target="_blank" class="text-blue-600 hover:text-blue-900 font-medium">ดูวิดีโอ</a>
+                    </td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm">
+                        <a href="${row[4]}" target="_blank" class="text-blue-600 hover:text-blue-900 font-medium">ดูโปสเตอร์</a>
+                    </td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-500">
+                        <span class="p-1.5 text-xs font-medium uppercase tracking-wider text-green-800 bg-green-200 rounded-lg bg-opacity-50">ส่งแล้ว</span>
+                    </td>
+                `;
+                tableBody.appendChild(tr);
+            });
+        }
+        
+        // ตั้งค่าเริ่มต้นเมื่อโหลดหน้า
+        document.addEventListener('DOMContentLoaded', () => {
+            navigate('submission'); // เริ่มต้นที่หน้าส่งข้อมูล
+        });
+    </script>
+</head>
+<body class="p-4 md:p-8">
+
+    <header class="mb-8">
+        <div class="max-w-4xl mx-auto flex items-center justify-center space-x-4">
+            <img src="https://img5.pic.in.th/file/secure-sv1/IMG_25650953161d1c1bbdd8.jpeg" alt="Logo" class="w-16 h-16 object-contain rounded-full shadow-lg">
+            <h1 class="text-3xl font-bold text-gray-800 text-center">ระบบประกวด 1 ห้องเรียน 1 โครงงานคุณธรรม</h1>
+        </div>
+        
+        <div class="max-w-4xl mx-auto mt-6 flex justify-center space-x-3 p-2 bg-white rounded-full shadow-md">
+            <button id="nav-submission" onclick="navigate('submission')" class="nav-button flex-1 py-2 px-4 text-gray-600 rounded-full border border-transparent">
+                📝 ส่งข้อมูลการประกวด
+            </button>
+            <button id="nav-check" onclick="navigate('check')" class="nav-button flex-1 py-2 px-4 text-gray-600 rounded-full border border-transparent">
+                🔎 ตรวจสอบการส่ง
+            </button>
+            <button id="nav-admin" onclick="navigate('admin')" class="nav-button flex-1 py-2 px-4 text-gray-600 rounded-full border border-transparent">
+                🔑 ผู้ดูแลระบบ
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto">
+        
+        <div id="submission" class="page container-card">
+            <h2 class="text-2xl font-bold mb-6 text-gray-700 border-b pb-2">แบบฟอร์มส่งโครงงานคุณธรรม</h2>
+            <form id="upload-form" onsubmit="handleSubmit(event)">
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                    <div>
+                        <label for="classLevel" class="block text-sm font-medium text-gray-700 mb-2">ระดับชั้น (ม.) <span class="text-red-500">*</span></label>
+                        <select id="classLevel" name="classLevel" required class="input-style w-full border">
+                            <option value="">เลือกระดับชั้น</option>
+                            <option value="ม.1">ม.1</option>
+                            <option value="ม.2">ม.2</option>
+                            <option value="ม.3">ม.3</option>
+                            <option value="ม.4">ม.4</option>
+                            <option value="ม.5">ม.5</option>
+                            <option value="ม.6">ม.6</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label for="classNumber" class="block text-sm font-medium text-gray-700 mb-2">ห้องเรียน (1-12) <span class="text-red-500">*</span></label>
+                        <select id="classNumber" name="classNumber" required class="input-style w-full border">
+                            <option value="">เลือกห้องเรียน</option>
+                            <script>
+                                for(let i=1; i<=12; i++) {
+                                    document.write(`<option value="${i}">${i}</option>`);
+                                }
+                            </script>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <label for="videoFile" class="block text-sm font-medium text-gray-700 mb-2">คลิปวิดีโอโครงงาน (.mp4) <span class="text-red-500">*</span></label>
+                    <input type="file" id="videoFile" name="videoFile" accept="video/mp4" required class="input-style w-full border p-2 bg-gray-50 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    <p class="text-xs text-gray-500 mt-1">สูงสุดไม่เกินที่กำหนดโดยผู้ดูแล</p>
+                </div>
+
+                <div class="mb-6">
+                    <label for="posterFile" class="block text-sm font-medium text-gray-700 mb-2">โปสเตอร์ (.pdf, .png, .jpg, .jpeg) <span class="text-red-500">*</span></label>
+                    <input type="file" id="posterFile" name="posterFile" accept=".pdf,.png,.jpg,.jpeg" required class="input-style w-full border p-2 bg-gray-50 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+                    <p class="text-xs text-gray-500 mt-1">สูงสุดไม่เกินที่กำหนดโดยผู้ดูแล</p>
+                </div>
+
+                <div id="status-message" class="hidden" role="alert"></div>
+
+                <button type="submit" id="save-button" class="btn-primary w-full py-3 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition duration-200">
+                    บันทึกข้อมูล
+                </button>
+            </form>
+        </div>
+
+        <div id="check" class="page container-card hidden">
+            <h2 class="text-2xl font-bold mb-6 text-gray-700 border-b pb-2">ตรวจสอบสถานะการส่งโครงงาน</h2>
+            <form id="check-form" onsubmit="handleCheck(event)">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                    <div>
+                        <label for="checkClassLevel" class="block text-sm font-medium text-gray-700 mb-2">ระดับชั้น (ม.)</label>
+                        <select id="checkClassLevel" name="checkClassLevel" required class="input-style w-full border">
+                            <option value="">เลือกระดับชั้น</option>
+                            <option value="ม.1">ม.1</option>
+                            <option value="ม.2">ม.2</option>
+                            <option value="ม.3">ม.3</option>
+                            <option value="ม.4">ม.4</option>
+                            <option value="ม.5">ม.5</option>
+                            <option value="ม.6">ม.6</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label for="checkClassNumber" class="block text-sm font-medium text-gray-700 mb-2">ห้องเรียน (1-12)</label>
+                        <select id="checkClassNumber" name="checkClassNumber" required class="input-style w-full border">
+                            <option value="">เลือกห้องเรียน</option>
+                            <script>
+                                for(let i=1; i<=12; i++) {
+                                    document.write(`<option value="${i}">${i}</option>`);
+                                }
+                            </script>
+                        </select>
+                    </div>
+                </div>
+                
+                <button type="submit" id="check-button" class="btn-primary w-full py-3 text-white font-bold rounded-xl shadow-lg transition duration-200 mt-4">
+                    ตรวจสอบ
+                </button>
+            </form>
+
+            <div id="check-result" class="mt-6">
+                </div>
+        </div>
+
+        <div id="admin" class="page container-card hidden">
+            <h2 class="text-2xl font-bold mb-6 text-gray-700 border-b pb-2">🔑 พื้นที่สำหรับผู้ดูแลระบบ</h2>
+
+            <div id="admin-login">
+                <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+                    <div>
+                        <label for="username" class="block text-sm font-medium text-gray-700">ชื่อบัญชี</label>
+                        <input type="text" id="username" name="username" required class="input-style w-full border">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700">รหัสผ่าน</label>
+                        <input type="password" id="password" name="password" required class="input-style w-full border">
+                    </div>
+                    <div id="login-message" class="text-center"></div>
+                    <button type="submit" id="login-button" class="btn-primary w-full py-2 text-white font-bold rounded-xl shadow-md">
+                        เข้าสู่ระบบ
+                    </button>
+                </form>
+            </div>
+            
+            <div id="admin-panel" class="hidden">
+                <h3 class="text-xl font-semibold mb-4 text-gray-700">⚙️ การตั้งค่าระบบ</h3>
+                <div class="bg-gray-50 p-4 rounded-xl mb-6">
+                    <h4 class="font-medium text-gray-600 mb-3">กำหนดขนาดไฟล์สูงสุด (MB)</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        <div>
+                            <label for="videoMaxSize" class="block text-sm font-medium text-gray-700">วิดีโอ (.mp4)</label>
+                            <input type="number" id="videoMaxSize" class="input-style w-full border" value="50" min="1" required>
+                        </div>
+                        <div>
+                            <label for="posterMaxSize" class="block text-sm font-medium text-gray-700">โปสเตอร์ (.pdf/.png/.jpg)</label>
+                            <input type="number" id="posterMaxSize" class="input-style w-full border" value="10" min="1" required>
+                        </div>
+                        <button onclick="saveSettings()" id="save-settings-button" class="btn-primary py-2 text-white font-bold rounded-xl shadow-md">
+                            บันทึกการตั้งค่า
+                        </button>
+                    </div>
+                    <div id="admin-settings" class="mt-2 text-sm text-center"></div>
+                </div>
+
+                <h3 class="text-xl font-semibold mb-4 text-gray-700">📄 ตารางการส่งข้อมูลทั้งหมด</h3>
+                
+                <div class="overflow-x-auto shadow-lg rounded-xl">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ระดับชั้น</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ห้อง</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">วัน-เวลาส่ง</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">วิดีโอ</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">โปสเตอร์</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="submission-table-body" class="bg-white divide-y divide-gray-200">
+                            </tbody>
+                    </table>
+                </div>
+                <button onclick="fetchSubmissions()" class="mt-4 w-full py-2 bg-gray-200 text-gray-700 font-medium rounded-xl hover:bg-gray-300 transition duration-200">
+                    🔄 โหลดข้อมูลใหม่
+                </button>
+            </div>
+        </div>
+        
+    </main>
+
+    <footer class="mt-12 pt-6 border-t border-gray-200 text-center text-gray-500 text-sm">
+        copyright &copy; 2024 SPT MORAL SCHOOL - โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง | All Rights Reserved
+    </footer>
+
+</body>
+</html>
