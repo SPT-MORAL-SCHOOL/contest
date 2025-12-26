@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ระบบตัดสินการประเมิน ๑ ห้องเรียน ๑ โครงงานคุณธรรม</title>
+    
+    <!-- Google Fonts: Sarabun & Prompt -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        prompt: ['Prompt', 'sans-serif'],
+                        sarabun: ['Sarabun', 'sans-serif'],
+                    },
+                    colors: {
+                        glass: {
+                            100: 'rgba(255, 255, 255, 0.2)',
+                            200: 'rgba(255, 255, 255, 0.4)',
+                            300: 'rgba(255, 255, 255, 0.7)',
+                            400: 'rgba(255, 255, 255, 0.9)',
+                        },
+                        primary: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            900: '#1e3a8a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyC1g1OTvol9087rKDDncS28uW0cSA-tSO8",
+            authDomain: "moral-contest.firebaseapp.com",
+            projectId: "moral-contest",
+            storageBucket: "moral-contest.firebasestorage.app",
+            messagingSenderId: "37936943967",
+            appId: "1:37936943967:web:57e6654d197e76dc8d9cea",
+            measurementId: "G-ZHFQM3WYE6"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentUserData = null;
+        let tempAssignUid = null;
+        let isMobileMenuOpen = false;
+
+        // --- FULL CRITERIA TEXTS ---
+        const criteriaTexts = [
+            "มีกระบวนการทางปัญญาในการสำรวจ เลือกประเด็นปัญหา ประมวลข้อมูล การคิดวิเคราะห์ สังเคราะห์",
+            "การนำหลักธรรมแนวพระราชดำริ พระราชดำรัส มาปรับใช้ได้สอดคล้อง เหมาะสมตรงกับประเด็นปัญหา",
+            "มีคุณประโยชน์และความสำคัญในการแก้ปัญหาศีลธรรม",
+            "มีวิธีคิดกิจกรรมที่ใช้ในการแก้ปัญหาที่สร้างสรรค์แปลกใหม่และทำได้จริงตามวัตถุประสงค์",
+            "การนำเสนอด้วยความคิดสร้างสรรค์ เทคนิควิธีการ สื่อ โปสเตอร์ และบุคลิกภาพในการสื่อสาร",
+            "มีร่องรอยการจัดทำกิจกรรมอย่างต่อเนื่อง มีภาพถ่ายหรือวีดีโอที่แสดงกระบวนการเห็นผลลัพธ์ มีการแสดงค่าสถิติอย่างชัดเจนต่อเนื่อง",
+            "ผลลัพธ์ความสำเร็จ มีพฤติกรรมบ่งชี้เชิงบวกที่ต้องการให้เกิดขึ้นเป็นไปตามเป้าหมาย",
+            "การส่งรูปเล่มโครงงานตามกำหนดการที่ได้มีการกำหนดไว้ครบทุกประเด็น",
+            "มีการระบุเป้าหมายเชิงปริมาณและเชิงคุณภาพ มีความชัดเจนสอดคล้องและเป็นไปได้ ประสบความสำเร็จตามเป้าหมาย",
+            "นักเรียนมีการนำเสนอปัจจัยความสำเร็จ ปัญหา/อุปสรรค/แนวทางการพัฒนานำเสนอ ตอบคำถามข้อสงสัยได้อย่างชัดเจน"
+        ];
+
+        // System Config State
+        let systemConfig = {
+            isOpen: true,
+            isAuto: false,
+            startTime: "",
+            endTime: ""
+        };
+
+        // --- SYSTEM STATUS LISTENER ---
+        onSnapshot(doc(db, "settings", "config"), (doc) => {
+            if (doc.exists()) {
+                systemConfig = doc.data();
+                updateSystemStatusUI();
+            } else {
+                setDoc(doc.ref, systemConfig);
+            }
+        });
+
+        function isSystemOpen() {
+            if (currentUserData && currentUserData.role === 'admin') return true; 
+            if (systemConfig.isAuto) {
+                const now = new Date().getTime();
+                const start = new Date(systemConfig.startTime).getTime();
+                const end = new Date(systemConfig.endTime).getTime();
+                return now >= start && now <= end;
+            } else {
+                return systemConfig.isOpen;
+            }
+        }
+
+        function updateSystemStatusUI() {
+            const statusIndicators = document.querySelectorAll('.system-status-indicator');
+            const open = isSystemOpen();
+            
+            statusIndicators.forEach(el => {
+                if(open) {
+                    el.innerHTML = '<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-bold shadow-sm border border-green-200 flex items-center gap-1 animate-pulse"><i class="fas fa-circle text-[6px]"></i> เปิดรับคะแนน</span>';
+                } else {
+                    el.innerHTML = '<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-bold shadow-sm border border-red-200 flex items-center gap-1"><i class="fas fa-lock text-[8px]"></i> ปิดรับคะแนน</span>';
+                }
+            });
+
+            // Update Admin Inputs
+            const chkManual = document.getElementById('chk-manual-open');
+            const chkAuto = document.getElementById('chk-auto-timer');
+            const dateStart = document.getElementById('date-start');
+            const dateEnd = document.getElementById('date-end');
+
+            if (chkManual) {
+                chkManual.checked = systemConfig.isOpen;
+                chkAuto.checked = systemConfig.isAuto;
+                dateStart.value = systemConfig.startTime || "";
+                dateEnd.value = systemConfig.endTime || "";
+                
+                chkManual.disabled = systemConfig.isAuto;
+                dateStart.disabled = !systemConfig.isAuto;
+                dateEnd.disabled = !systemConfig.isAuto;
+                
+                document.getElementById('manual-control-group').style.opacity = systemConfig.isAuto ? '0.5' : '1';
+                document.getElementById('auto-control-group').style.opacity = systemConfig.isAuto ? '1' : '0.5';
+            }
+            
+            // Update Judge Button
+            const judgeBtn = document.getElementById('btn-judge-start');
+            if(judgeBtn) {
+                if(open) {
+                    judgeBtn.disabled = false;
+                    judgeBtn.classList.remove('bg-gray-400', 'cursor-not-allowed');
+                    judgeBtn.classList.add('btn-primary', 'transform', 'active:scale-95');
+                    judgeBtn.innerHTML = '<i class="fas fa-plus-circle text-lg"></i> <span class="font-bold">ประเมินห้องใหม่</span>';
+                } else {
+                    judgeBtn.disabled = true;
+                    judgeBtn.classList.remove('btn-primary', 'transform', 'active:scale-95');
+                    judgeBtn.classList.add('bg-gray-400', 'cursor-not-allowed');
+                    judgeBtn.innerHTML = '<i class="fas fa-lock text-lg"></i> <span class="font-bold">ปิดรับคะแนน</span>';
+                }
+            }
+        }
+
+        // --- AUTHENTICATION ---
+
+        window.handleRegister = async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('reg-email').value;
+            const password = document.getElementById('reg-password').value;
+            const name = document.getElementById('reg-name').value;
+            const errorMsg = document.getElementById('reg-error');
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+                await setDoc(doc(db, "users", user.uid), { uid: user.uid, name: name, email: email, role: "pending", assignedLevels: [], createdAt: new Date() });
+                alert("ลงทะเบียนสำเร็จ! กรุณารออนุมัติ");
+                showSection('login-section');
+            } catch (error) { errorMsg.textContent = "Error: " + error.message; errorMsg.classList.remove('hidden'); }
+        };
+
+        window.handleLogin = async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            const loginBtn = document.getElementById('login-btn');
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ...';
+            try { await signInWithEmailAndPassword(auth, email, password); } 
+            catch (error) { loginBtn.innerHTML = 'เข้าสู่ระบบ'; document.getElementById('login-error').textContent = "ข้อมูลไม่ถูกต้อง"; document.getElementById('login-error').classList.remove('hidden'); }
+        };
+
+        window.handleLogout = async () => {
+            if(confirm("ต้องการออกจากระบบใช่หรือไม่?")) {
+                await signOut(auth);
+            }
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            const authWrapper = document.getElementById('auth-wrapper');
+            if (user) {
+                const docSnap = await getDoc(doc(db, "users", user.uid));
+                if (docSnap.exists()) {
+                    currentUserData = docSnap.data();
+                    document.querySelectorAll('.user-name-display').forEach(el => el.textContent = currentUserData.name);
+                    authWrapper.classList.remove('hidden');
+
+                    if (currentUserData.role === 'admin') {
+                        document.querySelectorAll('.admin-link').forEach(el => el.classList.remove('hidden'));
+                        loadAdminDashboard();
+                        showSection('admin-section');
+                    } else if (currentUserData.role === 'judge') {
+                        document.querySelectorAll('.admin-link').forEach(el => el.classList.add('hidden'));
+                        loadJudgeDashboard();
+                        showSection('dashboard-section');
+                    } else {
+                        authWrapper.classList.add('hidden');
+                        showSection('pending-section');
+                    }
+                    updateSystemStatusUI();
+                } else { await signOut(auth); }
+            } else {
+                currentUserData = null;
+                authWrapper.classList.add('hidden');
+                toggleMobileMenu(false);
+                showSection('login-section');
+            }
+        });
+
+        // --- SYSTEM CONTROL ---
+
+        window.saveSystemConfig = async () => {
+            const chkManual = document.getElementById('chk-manual-open');
+            const chkAuto = document.getElementById('chk-auto-timer');
+            const dateStart = document.getElementById('date-start');
+            const dateEnd = document.getElementById('date-end');
+
+            const newConfig = {
+                isOpen: chkManual.checked,
+                isAuto: chkAuto.checked,
+                startTime: dateStart.value,
+                endTime: dateEnd.value
+            };
+            try { await setDoc(doc(db, "settings", "config"), newConfig); } catch (e) { alert("Error: " + e.message); }
+        };
+
+        // --- LINKS MANAGEMENT ---
+
+        async function renderLinks(targetElementId, isAdmin = false) {
+            const container = document.getElementById(targetElementId);
+            const q = query(collection(db, "assessment_links"), orderBy("createdAt", "desc"));
+            const snapshot = await getDocs(q);
+            if (snapshot.empty) { container.innerHTML = '<div class="text-center py-2 text-gray-400 text-sm italic">ยังไม่มีลิงก์ประกอบการประเมิน</div>'; return; }
+            let html = '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">';
+            snapshot.forEach(doc => {
+                const link = doc.data();
+                html += `
+                    <div class="bg-white border border-gray-100 p-3 rounded-xl shadow-sm flex justify-between items-center group hover:shadow-md transition">
+                        <a href="${link.url}" target="_blank" class="flex items-center gap-3 text-primary-700 font-medium hover:underline flex-grow truncate">
+                            <div class="bg-blue-50 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-blue-500 shadow-inner">
+                                <i class="fas fa-link"></i>
+                            </div>
+                            <span class="truncate">${link.title}</span>
+                        </a>
+                        ${isAdmin ? `<button onclick="deleteLink('${doc.id}')" class="text-gray-300 hover:text-red-500 p-2 transition"><i class="fas fa-trash-alt"></i></button>` : ''}
+                    </div>`;
+            });
+            container.innerHTML = html + '</div>';
+        }
+
+        window.handleAddLink = async (e) => {
+            e.preventDefault();
+            try {
+                await addDoc(collection(db, "assessment_links"), {
+                    title: document.getElementById('link-title').value,
+                    url: document.getElementById('link-url').value,
+                    createdAt: new Date(), createdBy: currentUserData.uid
+                });
+                document.getElementById('link-form').reset();
+                renderLinks('admin-links-list', true);
+            } catch (error) { alert("Error: " + error.message); }
+        };
+
+        window.deleteLink = async (id) => { if(confirm("ลบลิงก์?")) { await deleteDoc(doc(db, "assessment_links", id)); renderLinks('admin-links-list', true); }};
+
+        // --- JUDGE DASHBOARD ---
+
+        async function loadJudgeDashboard() {
+            renderLinks('judge-links-list', false);
+            const container = document.getElementById('judge-assigned-list');
+            container.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-blue-500 text-2xl"></i><p class="text-gray-500 mt-2">กำลังโหลดข้อมูล...</p></div>';
+            
+            const assigned = currentUserData.assignedLevels || [];
+            const levelSelect = document.getElementById('score-level');
+            const roomSelect = document.getElementById('score-room');
+            levelSelect.innerHTML = '<option value="">เลือกระดับชั้น</option>';
+            roomSelect.innerHTML = '<option value="">เลือกห้อง</option>';
+            assigned.forEach(lvl => levelSelect.innerHTML += `<option value="${lvl}">${lvl}</option>`);
+            for(let i=1; i<=12; i++) roomSelect.innerHTML += `<option value="${i}">ห้อง ${i}</option>`;
+
+            const q = query(collection(db, "scores"), where("judgeId", "==", currentUserData.uid));
+            const snapshot = await getDocs(q);
+            
+            if (snapshot.empty) { container.innerHTML = '<div class="py-12 text-center text-gray-400 w-full col-span-full bg-white/50 rounded-xl border border-dashed border-gray-300">ยังไม่มีประวัติการให้คะแนน</div>'; return; }
+            
+            let html = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">`;
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const json = encodeURIComponent(JSON.stringify(data));
+                html += `
+                    <div class="glass-card p-4 shadow-sm border border-gray-100 relative overflow-hidden group hover:shadow-md transition-all">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                        <div class="flex justify-between items-start pl-3">
+                            <div>
+                                <h3 class="font-bold text-gray-800 text-lg">${data.level} ห้อง ${data.room}</h3>
+                                <p class="text-xs text-gray-400 mt-1"><i class="far fa-clock"></i> ${new Date(data.timestamp.seconds*1000).toLocaleDateString('th-TH')}</p>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-2xl font-bold text-blue-600 block leading-none">${data.total}</span>
+                                <span class="text-[10px] text-gray-400">คะแนน</span>
+                            </div>
+                        </div>
+                        <button onclick="openDetailModal('${json}')" class="w-full mt-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition flex justify-center items-center gap-2">
+                            <i class="fas fa-search-plus"></i> ดูรายละเอียด
+                        </button>
+                    </div>`;
+            });
+            container.innerHTML = html + '</div>';
+            updateSystemStatusUI();
+        }
+
+        window.goToScoring = () => {
+            if(!isSystemOpen()) { alert("ขออภัย ระบบปิดรับคะแนนแล้ว"); return; }
+            document.getElementById('score-form').reset();
+            document.getElementById('total-score-display').textContent = '0';
+            showSection('scoring-section');
+        }
+
+        window.calculateTotal = () => {
+            let total = 0;
+            for(let i=1; i<=10; i++) {
+                const el = document.getElementById(`c${i}`);
+                const val = parseFloat(el.value) || 0;
+                total += val;
+                if(val > 0) el.classList.add('bg-blue-50', 'text-blue-700', 'border-blue-200');
+                else el.classList.remove('bg-blue-50', 'text-blue-700', 'border-blue-200');
+            }
+            document.getElementById('total-score-display').textContent = total;
+        }
+
+        window.submitScore = async (e) => {
+            e.preventDefault();
+            if(!isSystemOpen()) { alert("ระบบปิดรับคะแนนแล้ว ไม่สามารถบันทึกได้"); return; }
+            
+            const btn = document.getElementById('submit-score-btn');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> บันทึก...'; btn.disabled = true;
+            
+            const level = document.getElementById('score-level').value;
+            const room = document.getElementById('score-room').value;
+            if(!level || !room) { alert("ระบุชั้น/ห้อง"); btn.innerHTML='บันทึก'; btn.disabled = false; return; }
+
+            const scores = {}; let total = 0;
+            for(let i=1; i<=10; i++) {
+                const val = parseFloat(document.getElementById(`c${i}`).value) || 0;
+                scores[`c${i}`] = val; total += val;
+            }
+
+            try {
+                await setDoc(doc(db, "scores", `${currentUserData.uid}_${level}_${room}`), {
+                    judgeId: currentUserData.uid, judgeName: currentUserData.name,
+                    level, room, classId: `${level}/${room}`, criteria: scores, total, timestamp: new Date()
+                });
+                alert("บันทึกเรียบร้อย");
+                showSection('dashboard-section'); loadJudgeDashboard();
+            } catch(e) { alert("Error: " + e.message); } 
+            finally { btn.innerHTML = 'บันทึก'; btn.disabled = false; }
+        };
+
+        // --- ADMIN DASHBOARD ---
+
+        async function loadAdminDashboard() {
+            updateSystemStatusUI();
+            renderUserManagement();
+            renderScoreReport(); 
+            renderLinks('admin-links-list', true);
+        }
+
+        // Users
+        async function renderUserManagement() {
+            const list = document.getElementById('admin-user-list');
+            list.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></div>';
+            const snap = await getDocs(query(collection(db, "users")));
+            let html = '<div class="overflow-x-auto rounded-lg border border-gray-100"><table class="w-full text-sm text-left text-gray-500 whitespace-nowrap"><thead class="bg-blue-50 text-xs text-gray-700 uppercase"><tr><th class="px-4 py-3">ชื่อ</th><th class="px-4 py-3">สถานะ</th><th class="px-4 py-3">มอบหมาย</th><th class="px-4 py-3">จัดการ</th></tr></thead><tbody class="divide-y divide-gray-100">';
+            snap.forEach(d => {
+                const u = d.data(); if(u.role==='admin') return;
+                const isPending = u.role === 'pending';
+                const statusBadge = isPending ? `<span class="bg-yellow-100 text-yellow-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-yellow-200">รออนุมัติ</span>` : `<span class="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-green-200">อนุมัติแล้ว</span>`;
+                html += `<tr class="bg-white hover:bg-gray-50">
+                    <td class="px-4 py-3 font-medium text-gray-900">${u.name}<br><span class="text-xs text-gray-400">${u.email}</span></td>
+                    <td class="px-4 py-3">${statusBadge}</td>
+                    <td class="px-4 py-3"><div class="max-w-[100px] truncate text-xs bg-gray-100 px-2 py-1 rounded">${(u.assignedLevels||[]).join(',')}</div></td>
+                    <td class="px-4 py-3 flex gap-2">
+                        ${isPending?`<button onclick="approveUser('${u.uid}')" class="text-green-600 bg-green-50 p-2 rounded hover:bg-green-100" title="อนุมัติ"><i class="fas fa-check"></i></button>`:''} 
+                        <button onclick="openAssignModal('${u.uid}','${u.name}','${(u.assignedLevels||[]).join(',')}')" class="text-blue-600 bg-blue-50 p-2 rounded hover:bg-blue-100" title="มอบหมาย"><i class="fas fa-tasks"></i></button>
+                        <button onclick="deleteUser('${u.uid}','${u.name}')" class="text-red-500 bg-red-50 p-2 rounded hover:bg-red-100" title="ลบผู้ใช้"><i class="fas fa-trash-alt"></i></button>
+                    </td>
+                </tr>`;
+            });
+            list.innerHTML = html + '</tbody></table></div>';
+        }
+        window.approveUser = async(uid)=>{ if(confirm('ยืนยันอนุมัติ?')) await updateDoc(doc(db,"users",uid),{role:'judge'}); renderUserManagement();}
+        window.openAssignModal = (uid,name,lvlStr)=>{ tempAssignUid=uid; document.getElementById('assign-name').textContent=name; const lvls=lvlStr.split(','); ['ม.1','ม.2','ม.3','ม.4','ม.5','ม.6'].forEach(l=>document.getElementById(`chk-${l}`).checked=lvls.includes(l)); document.getElementById('assign-modal').classList.remove('hidden');}
+        window.closeAssignModal = ()=>document.getElementById('assign-modal').classList.add('hidden');
+        window.saveAssignment = async()=>{ const s=[]; ['ม.1','ม.2','ม.3','ม.4','ม.5','ม.6'].forEach(l=>{if(document.getElementById(`chk-${l}`).checked)s.push(l)}); await updateDoc(doc(db,"users",tempAssignUid),{assignedLevels:s}); closeAssignModal(); renderUserManagement();}
+        window.deleteUser = async (uid, name) => {
+            if(confirm(`คำเตือน: คุณต้องการลบผู้ใช้งาน "${name}" ใช่หรือไม่?\n\nการลบนี้จะทำให้ผู้ใช้ไม่สามารถเข้าใช้งานได้อีก`)) {
+                try {
+                    await deleteDoc(doc(db, "users", uid));
+                    renderUserManagement();
+                } catch(e) {
+                    alert("Error: " + e.message);
+                }
+            }
+        };
+
+        window.clearAllScores = async () => {
+            if(confirm("คำเตือน: คุณกำลังจะลบข้อมูลคะแนนทั้งหมด?")) {
+                if(confirm("ยืนยันครั้งสุดท้าย?")) {
+                    const snap = await getDocs(collection(db, "scores"));
+                    await Promise.all(snap.docs.map(d=>deleteDoc(d.ref)));
+                    alert("ลบข้อมูลเรียบร้อย"); renderScoreReport();
+                }
+            }
+        };
+
+        let isAdminViewSummary = true; 
+        window.toggleAdminView = (mode) => {
+            isAdminViewSummary = mode === 'summary';
+            renderScoreReport();
+            document.getElementById('btn-view-summary').className = isAdminViewSummary ? 'flex-1 py-1.5 text-xs font-bold rounded-md bg-primary-600 text-white shadow-sm' : 'flex-1 py-1.5 text-xs font-bold rounded-md text-gray-600 hover:bg-gray-200';
+            document.getElementById('btn-view-detail').className = !isAdminViewSummary ? 'flex-1 py-1.5 text-xs font-bold rounded-md bg-primary-600 text-white shadow-sm' : 'flex-1 py-1.5 text-xs font-bold rounded-md text-gray-600 hover:bg-gray-200';
+        }
+
+        async function renderScoreReport() {
+            const container = document.getElementById('admin-score-list');
+            container.innerHTML = '<div class="text-center py-6 text-gray-500">กำลังโหลดข้อมูล...</div>';
+            const levelFilter = document.getElementById('admin-filter-level').value;
+            const snapshot = await getDocs(query(collection(db, "scores")));
+            
+            const docs = [];
+            snapshot.forEach(d => {
+                const data = d.data();
+                data.id = d.id; // Include Doc ID for edit/delete
+                if(levelFilter === 'ALL' || data.level === levelFilter) docs.push(data);
+            });
+
+            if(docs.length === 0) { container.innerHTML = '<div class="text-center py-6 text-gray-400">ไม่พบข้อมูลคะแนน</div>'; return; }
+
+            if (isAdminViewSummary) {
+                const levels = ['ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
+                let fullHtml = '';
+
+                levels.forEach(currentLevel => {
+                    if (levelFilter !== 'ALL' && levelFilter !== currentLevel) return;
+
+                    const levelDocs = docs.filter(d => d.level === currentLevel);
+                    
+                    if (levelDocs.length > 0) {
+                        const grouped = {};
+                        levelDocs.forEach(d => {
+                            if(!grouped[d.room]) grouped[d.room] = { room: d.room, total: 0, judges: 0 };
+                            grouped[d.room].total += d.total;
+                            grouped[d.room].judges += 1;
+                        });
+
+                        const sortedRooms = Object.values(grouped).sort((a,b) => b.total - a.total);
+
+                        fullHtml += `
+                        <div class="mb-6 glass-card overflow-hidden">
+                            <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-white font-bold text-sm flex justify-between items-center">
+                                <span><i class="fas fa-layer-group mr-2"></i>ระดับชั้น ${currentLevel}</span>
+                                <span class="text-xs bg-white/20 px-2 py-0.5 rounded-full">${sortedRooms.length} ห้อง</span>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm text-left">
+                                    <thead class="bg-gray-50 text-xs text-gray-700 uppercase border-b border-gray-100">
+                                        <tr>
+                                            <th class="px-4 py-3">อันดับ</th>
+                                            <th class="px-4 py-3">ห้อง</th>
+                                            <th class="px-4 py-3 text-center">กรรมการ</th>
+                                            <th class="px-4 py-3 text-right">คะแนนรวม</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100 bg-white">
+                        `;
+
+                        let rank = 1;
+                        sortedRooms.forEach(r => {
+                            let rankClass = "text-gray-500 font-medium";
+                            let icon = "";
+                            if(rank === 1) { rankClass = "text-yellow-500 font-extrabold"; icon = '<i class="fas fa-crown text-sm mr-1"></i> '; }
+                            else if(rank === 2) { rankClass = "text-gray-400 font-bold"; }
+                            else if(rank === 3) { rankClass = "text-orange-400 font-bold"; }
+
+                            fullHtml += `
+                                <tr class="hover:bg-blue-50 transition">
+                                    <td class="px-4 py-3 ${rankClass}">${icon}#${rank++}</td>
+                                    <td class="px-4 py-3 font-bold text-gray-700">ห้อง ${r.room}</td>
+                                    <td class="px-4 py-3 text-center"><span class="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm border border-blue-200">${r.judges} ท่าน</span></td>
+                                    <td class="px-4 py-3 text-right font-bold text-green-600 text-lg">${r.total}</td>
+                                </tr>
+                            `;
+                        });
+                        fullHtml += `</tbody></table></div></div>`;
+                    }
+                });
+                container.innerHTML = fullHtml || '<div class="text-center py-4 text-gray-500">ไม่พบข้อมูลในระดับชั้นที่เลือก</div>';
+
+            } else {
+                // Detail View WITH ACTIONS
+                docs.sort((a,b) => (a.level.localeCompare(b.level)) || (parseInt(a.room)-parseInt(b.room)));
+                let html = `<div class="overflow-x-auto rounded-lg border border-gray-100"><table class="w-full text-sm text-left text-gray-500 whitespace-nowrap"><thead class="bg-blue-600 text-white text-xs uppercase"><tr><th class="px-4 py-3">ระดับ</th><th class="px-4 py-3">ห้อง</th><th class="px-4 py-3">กรรมการ</th><th class="px-4 py-3 text-right">คะแนน</th><th class="px-4 py-3 text-center">จัดการ</th></tr></thead><tbody class="divide-y divide-gray-100 bg-white">`;
+                docs.forEach(s => {
+                    const json = encodeURIComponent(JSON.stringify(s));
+                    html += `<tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3">${s.level}</td>
+                        <td class="px-4 py-3 font-bold">${s.room}</td>
+                        <td class="px-4 py-3 text-xs text-gray-600">${s.judgeName}</td>
+                        <td class="px-4 py-3 text-right font-bold text-primary-600">${s.total}</td>
+                        <td class="px-4 py-3 text-center flex justify-center gap-2">
+                            <button onclick="openDetailModal('${json}')" class="text-blue-500 bg-blue-50 hover:bg-blue-100 p-2 rounded-full w-8 h-8 flex items-center justify-center transition" title="ดูรายละเอียด"><i class="fas fa-eye"></i></button>
+                            <button onclick="openEditScoreModal('${json}')" class="text-yellow-500 bg-yellow-50 hover:bg-yellow-100 p-2 rounded-full w-8 h-8 flex items-center justify-center transition" title="แก้ไข"><i class="fas fa-edit"></i></button>
+                            <button onclick="deleteSingleScore('${s.id}')" class="text-red-500 bg-red-50 hover:bg-red-100 p-2 rounded-full w-8 h-8 flex items-center justify-center transition" title="ลบ"><i class="fas fa-trash-alt"></i></button>
+                        </td>
+                    </tr>`;
+                });
+                container.innerHTML = html + '</tbody></table></div>';
+            }
+        }
+        
+        window.filterAdminScores = renderScoreReport;
+        
+        // --- EXPORT CSV ---
+        window.exportCSV = async () => {
+            const levelFilter = document.getElementById('admin-filter-level').value;
+            const q = query(collection(db, "scores"));
+            try {
+                const snapshot = await getDocs(q);
+                let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; 
+                let header = "ระดับชั้น,ห้อง,กรรมการ";
+                for(let i=1; i<=10; i++) { header += `,ข้อ${i}(10)`; }
+                header += ",รวม(100)\n";
+                csvContent += header;
+                const docs = [];
+                snapshot.forEach(doc => {
+                    const s = doc.data();
+                    if (levelFilter === 'ALL' || s.level === levelFilter) docs.push(s);
+                });
+                if(docs.length === 0) { alert("ไม่พบข้อมูลสำหรับส่งออก"); return; }
+                docs.sort((a,b) => {
+                    if(a.level !== b.level) return a.level.localeCompare(b.level);
+                    return parseInt(a.room) - parseInt(b.room);
+                });
+                docs.forEach(s => {
+                    const c = s.criteria;
+                    let row = `${s.level},${s.room},${s.judgeName}`;
+                    for(let i=1; i<=10; i++) row += `,${c[`c${i}`] || 0}`;
+                    row += `,${s.total}`;
+                    csvContent += row + "\n";
+                });
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                const fileNameLevel = levelFilter === 'ALL' ? 'All_Levels' : levelFilter;
+                link.setAttribute("download", `scores_${fileNameLevel}_${new Date().toISOString().slice(0,10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) { console.error(error); alert("เกิดข้อผิดพลาดในการส่งออกข้อมูล: " + error.message); }
+        };
+
+        // --- NEW: EDIT & DELETE SCORE ---
+        window.deleteSingleScore = async (id) => {
+            if(confirm("ยืนยันการลบรายการคะแนนนี้?")) {
+                try {
+                    await deleteDoc(doc(db, "scores", id));
+                    renderScoreReport();
+                } catch(e) { alert("Error deleting: " + e.message); }
+            }
+        };
+
+        window.openEditScoreModal = (json) => {
+            const data = JSON.parse(decodeURIComponent(json));
+            document.getElementById('edit-score-id').value = data.id;
+            document.getElementById('edit-score-title').textContent = `${data.level} ห้อง ${data.room} (โดย ${data.judgeName})`;
+            
+            const container = document.getElementById('edit-score-inputs');
+            let html = '';
+            for(let i=1; i<=10; i++) {
+                html += `
+                <div class="flex justify-between items-center bg-gray-50 p-2 rounded mb-2">
+                    <label class="text-xs text-gray-600 w-3/4 truncate pr-2" title="${criteriaTexts[i-1]}">ข้อ ${i}: ${criteriaTexts[i-1]}</label>
+                    <input type="number" id="edit-c${i}" value="${data.criteria[`c${i}`] || 0}" min="0" max="10" step="0.5" class="w-16 p-1 text-center border rounded font-bold" onchange="calculateEditTotal()">
+                </div>`;
+            }
+            container.innerHTML = html;
+            calculateEditTotal(); // Init total
+            document.getElementById('edit-score-modal').classList.remove('hidden');
+        };
+
+        window.calculateEditTotal = () => {
+            let total = 0;
+            for(let i=1; i<=10; i++) {
+                total += parseFloat(document.getElementById(`edit-c${i}`).value) || 0;
+            }
+            document.getElementById('edit-total-display').textContent = total;
+        };
+
+        window.saveEditedScore = async () => {
+            const id = document.getElementById('edit-score-id').value;
+            const scores = {};
+            let total = 0;
+            for(let i=1; i<=10; i++) {
+                const val = parseFloat(document.getElementById(`edit-c${i}`).value) || 0;
+                scores[`c${i}`] = val;
+                total += val;
+            }
+            
+            try {
+                await updateDoc(doc(db, "scores", id), {
+                    criteria: scores,
+                    total: total
+                });
+                alert("บันทึกการแก้ไขเรียบร้อย");
+                document.getElementById('edit-score-modal').classList.add('hidden');
+                renderScoreReport();
+            } catch(e) {
+                alert("Error updating: " + e.message);
+            }
+        };
+
+        window.closeEditModal = () => document.getElementById('edit-score-modal').classList.add('hidden');
+
+        // Helper functions
+        window.showSection = (id) => { document.querySelectorAll('section').forEach(s=>s.classList.add('hidden')); document.getElementById(id).classList.remove('hidden'); window.scrollTo(0,0); toggleMobileMenu(false); }
+        window.toggleMobileMenu = (f) => { isMobileMenuOpen = (typeof f==='boolean')?f:!isMobileMenuOpen; document.getElementById('mobile-menu').classList.toggle('translate-x-full', !isMobileMenuOpen); document.getElementById('mobile-menu-overlay').classList.toggle('hidden', !isMobileMenuOpen); }
+        
+        window.openDetailModal = (json) => {
+            const data = JSON.parse(decodeURIComponent(json));
+            const c = document.getElementById('detail-content');
+            let h = ''; 
+            for(let i=1; i<=10; i++) {
+                h += `
+                <div class="p-4 bg-gray-50 rounded-xl border border-gray-100 mb-3 hover:border-blue-200 transition">
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-xs font-bold text-primary-600 bg-blue-100 px-2 py-1 rounded-full shadow-sm">ข้อที่ ${i}</span>
+                        <span class="font-bold text-lg text-blue-600">${data.criteria[`c${i}`]||0}/10</span>
+                    </div>
+                    <p class="text-sm text-gray-700 leading-relaxed font-medium">${criteriaTexts[i-1]}</p>
+                </div>`;
+            }
+            c.innerHTML = `
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl mb-4 border border-blue-100 shadow-inner">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="font-bold text-xl text-blue-900">${data.level} ห้อง ${data.room}</h3>
+                            <p class="text-sm text-gray-600 mt-1"><i class="fas fa-user-tie mr-1"></i> กรรมการ: ${data.judgeName}</p>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-4xl font-extrabold text-blue-600">${data.total}</div>
+                            <span class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">คะแนนรวม</span>
+                        </div>
+                    </div>
+                </div>
+                ${h}`;
+            document.getElementById('detail-modal').classList.remove('hidden');
+        }
+        window.closeDetailModal = () => document.getElementById('detail-modal').classList.add('hidden');
+    </script>
+
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            background: linear-gradient(135deg, #f0f4ff 0%, #e0eaff 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            color: #1e3a8a;
+        }
+        .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255, 255, 255, 0.5); }
+        .glass-card { background: rgba(255, 255, 255, 0.9); border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border: 1px solid rgba(255, 255, 255, 0.7); }
+        .soft-input { background: #f1f5f9; border: 1px solid transparent; border-radius: 0.75rem; transition: all 0.2s; }
+        .soft-input:focus { background: #ffffff; outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+        .btn-primary { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25); transition: all 0.2s; }
+        .btn-primary:active { transform: scale(0.96); box-shadow: 0 2px 5px rgba(37, 99, 235, 0.2); }
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); }
+        h1, h2, h3 { font-family: 'Sarabun', sans-serif; font-weight: 600; }
+    </style>
+</head>
+<body>
+
+    <!-- NAV -->
+    <nav class="glass sticky top-0 z-40 px-4 py-3 shadow-sm">
+        <div class="container mx-auto max-w-5xl flex justify-between items-center">
+            <div class="flex items-center gap-3"><img src="https://img5.pic.in.th/file/secure-sv1/IMG_25650953161d1c1bbdd8.jpeg" class="h-10 w-10 rounded-full shadow-md border-2 border-white"> <div><h1 class="font-bold text-primary-900 leading-tight text-sm">SPT MORAL SCHOOL</h1><div class="system-status-indicator mt-1"></div></div></div>
+            <div id="auth-wrapper" class="hidden flex items-center gap-4">
+                <div class="hidden md:flex gap-4 text-sm font-medium text-gray-600">
+                    <button onclick="showSection('dashboard-section')" class="hover:text-primary-600 transition">หน้าหลัก</button>
+                    <button class="admin-link hidden hover:text-primary-600 transition" onclick="showSection('admin-section')">ผู้ดูแล</button>
+                    <div class="h-4 w-px bg-gray-300"></div>
+                    <span class="user-name-display text-primary-600 font-bold"></span>
+                    <button onclick="handleLogout()" class="text-red-500 hover:bg-red-50 p-1 rounded"><i class="fas fa-sign-out-alt"></i></button>
+                </div>
+                <button onclick="toggleMobileMenu()" class="md:hidden text-gray-600"><i class="fas fa-bars text-xl"></i></button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MOBILE MENU -->
+    <div id="mobile-menu-overlay" onclick="toggleMobileMenu(false)" class="fixed inset-0 z-40 bg-black/50 hidden"></div>
+    <div id="mobile-menu" class="fixed top-0 right-0 z-50 w-64 h-full bg-white shadow-xl transform translate-x-full transition duration-300 flex flex-col p-4">
+        <div class="flex justify-between items-center mb-6"><span class="font-bold text-primary-900">เมนูหลัก</span><button onclick="toggleMobileMenu(false)"><i class="fas fa-times"></i></button></div>
+        <div class="font-bold text-primary-600 mb-4 user-name-display"></div>
+        <button onclick="showSection('dashboard-section')" class="p-3 text-left hover:bg-gray-50 rounded">หน้าหลัก</button>
+        <button onclick="showSection('admin-section')" class="admin-link hidden p-3 text-left hover:bg-gray-50 rounded">ผู้ดูแลระบบ</button>
+        <button onclick="handleLogout()" class="p-3 text-left text-red-500 mt-auto">ออกจากระบบ</button>
+    </div>
+
+    <main class="container mx-auto px-4 py-6 max-w-5xl pb-24">
+        
+        <!-- LOGIN -->
+        <section id="login-section" class="max-w-md mx-auto text-center mt-10">
+            <div class="glass-card p-10">
+                <img src="https://img5.pic.in.th/file/secure-sv1/IMG_25650953161d1c1bbdd8.jpeg" class="w-24 h-24 rounded-full mx-auto mb-4 shadow-lg border-4 border-white">
+                <h2 class="text-2xl font-bold text-primary-900 mb-2">ยินดีต้อนรับ</h2>
+                <p class="text-gray-500 text-sm mb-6">ระบบตัดสินโครงงานคุณธรรม</p>
+                <form onsubmit="handleLogin(event)" class="space-y-4">
+                    <input type="email" id="login-email" placeholder="Email" class="w-full p-3 soft-input" required>
+                    <input type="password" id="login-password" placeholder="Password" class="w-full p-3 soft-input" required>
+                    <div id="login-error" class="text-red-500 text-sm hidden"></div>
+                    <button type="submit" id="login-btn" class="w-full py-3 btn-primary rounded-xl font-bold shadow-lg">เข้าสู่ระบบ</button>
+                </form>
+                <div class="mt-6"><button onclick="showSection('register-section')" class="text-sm text-primary-600 font-bold hover:underline">ลงทะเบียนกรรมการ</button></div>
+            </div>
+        </section>
+
+        <!-- REGISTER -->
+        <section id="register-section" class="max-w-md mx-auto hidden mt-10">
+            <div class="glass-card p-8">
+                <button onclick="showSection('login-section')" class="text-gray-400 mb-4 hover:text-primary-600"><i class="fas fa-arrow-left"></i> กลับ</button>
+                <h2 class="text-2xl font-bold text-primary-900 mb-6">ลงทะเบียนกรรมการ</h2>
+                <form onsubmit="handleRegister(event)" class="space-y-4">
+                    <input type="text" id="reg-name" placeholder="ชื่อ-นามสกุล" class="w-full p-3 soft-input" required>
+                    <input type="email" id="reg-email" placeholder="Email" class="w-full p-3 soft-input" required>
+                    <input type="password" id="reg-password" placeholder="Password (6+ chars)" class="w-full p-3 soft-input" required minlength="6">
+                    <div id="reg-error" class="text-red-500 text-sm hidden"></div>
+                    <button type="submit" class="w-full py-3 btn-primary rounded-xl font-bold shadow-lg">ยืนยันการลงทะเบียน</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- PENDING -->
+        <section id="pending-section" class="hidden text-center mt-10">
+            <div class="glass-card p-10 inline-block">
+                <i class="fas fa-clock text-5xl text-yellow-500 mb-4"></i>
+                <h2 class="text-xl font-bold text-gray-800">รอการอนุมัติ</h2>
+                <p class="text-gray-600 mt-2 mb-6">บัญชีของคุณรอผู้ดูแลระบบอนุมัติสิทธิ์</p>
+                <button onclick="handleLogout()" class="text-primary-600 font-bold hover:underline">กลับไปหน้าล็อกอิน</button>
+            </div>
+        </section>
+
+        <!-- JUDGE DASHBOARD -->
+        <section id="dashboard-section" class="hidden">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                <div><h2 class="text-2xl font-bold text-primary-900">แผงควบคุม</h2><p class="text-gray-500 text-sm">จัดการและดูประวัติการให้คะแนน</p></div>
+                <button id="btn-judge-start" onclick="goToScoring()" class="btn-primary px-6 py-3 rounded-xl shadow-lg font-bold flex gap-2 items-center"><i class="fas fa-plus-circle"></i> ประเมิน</button>
+            </div>
+            
+            <div class="glass-card p-4 mb-6 border-l-4 border-blue-500">
+                <h3 class="font-bold text-blue-800 mb-3 flex items-center gap-2"><i class="fas fa-link"></i> ลิงก์ประกอบการประเมิน</h3>
+                <div id="judge-links-list"></div>
+            </div>
+
+            <h3 class="font-bold text-gray-700 mb-4 pl-2 border-l-4 border-primary-500">ประวัติการประเมิน</h3>
+            <div id="judge-assigned-list"></div>
+        </section>
+
+        <!-- SCORING -->
+        <section id="scoring-section" class="hidden max-w-3xl mx-auto">
+            <div class="flex items-center mb-6">
+                <button onclick="showSection('dashboard-section')" class="mr-4 w-10 h-10 bg-white shadow rounded-full text-gray-500 hover:text-primary-600"><i class="fas fa-arrow-left"></i></button>
+                <h2 class="text-xl font-bold text-primary-900">แบบฟอร์มให้คะแนน</h2>
+            </div>
+            <form id="score-form" onsubmit="submitScore(event)">
+                <div class="glass-card p-5 mb-6">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><label class="text-xs font-bold text-primary-700 ml-1">ระดับ</label><div class="relative"><select id="score-level" class="w-full p-3 soft-input font-bold text-gray-700 appearance-none" required></select><i class="fas fa-chevron-down absolute right-3 top-4 text-xs text-gray-400"></i></div></div>
+                        <div><label class="text-xs font-bold text-primary-700 ml-1">ห้อง</label><div class="relative"><select id="score-room" class="w-full p-3 soft-input font-bold text-gray-700 appearance-none" required></select><i class="fas fa-chevron-down absolute right-3 top-4 text-xs text-gray-400"></i></div></div>
+                    </div>
+                </div>
+                <div class="space-y-4 mb-24">
+                    <script>
+                        for(let i=1; i<=10; i++) {
+                            const t = [
+                                "มีกระบวนการทางปัญญาในการสำรวจ เลือกประเด็นปัญหา ประมวลข้อมูล การคิดวิเคราะห์ สังเคราะห์",
+                                "การนำหลักธรรมแนวพระราชดำริ พระราชดำรัส มาปรับใช้ได้สอดคล้อง เหมาะสมตรงกับประเด็นปัญหา",
+                                "มีคุณประโยชน์และความสำคัญในการแก้ปัญหาศีลธรรม",
+                                "มีวิธีคิดกิจกรรมที่ใช้ในการแก้ปัญหาที่สร้างสรรค์แปลกใหม่และทำได้จริงตามวัตถุประสงค์",
+                                "การนำเสนอด้วยความคิดสร้างสรรค์ เทคนิควิธีการ สื่อ โปสเตอร์ และบุคลิกภาพในการสื่อสาร",
+                                "มีร่องรอยการจัดทำกิจกรรมอย่างต่อเนื่อง มีภาพถ่ายหรือวีดีโอที่แสดงกระบวนการเห็นผลลัพธ์ มีการแสดงค่าสถิติอย่างชัดเจนต่อเนื่อง",
+                                "ผลลัพธ์ความสำเร็จ มีพฤติกรรมบ่งชี้เชิงบวกที่ต้องการให้เกิดขึ้นเป็นไปตามเป้าหมาย",
+                                "การส่งรูปเล่มโครงงานตามกำหนดการที่ได้มีการกำหนดไว้ครบทุกประเด็น",
+                                "มีการระบุเป้าหมายเชิงปริมาณและเชิงคุณภาพ มีความชัดเจนสอดคล้องและเป็นไปได้ ประสบความสำเร็จตามเป้าหมาย",
+                                "นักเรียนมีการนำเสนอปัจจัยความสำเร็จ ปัญหา/อุปสรรค/แนวทางการพัฒนานำเสนอ ตอบคำถามข้อสงสัยได้อย่างชัดเจน"
+                            ][i-1];
+                            document.write(`<div class="glass-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-4"><div class="text-sm font-medium text-gray-800 md:w-3/4"><span class="font-bold text-primary-600 mr-1">${i}.</span>${t}</div><div class="flex items-center justify-end gap-2 bg-blue-50/50 p-2 rounded-lg"><span class="text-xs text-primary-600 font-bold md:hidden">คะแนน</span><input type="number" id="c${i}" min="0" max="10" step="0.5" class="w-20 p-2 text-center text-lg font-bold border rounded-lg bg-white text-primary-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="0" onchange="calculateTotal()" required></div></div>`);
+                        }
+                    </script>
+                </div>
+                <div class="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t p-4 z-30 shadow-lg">
+                    <div class="container mx-auto max-w-3xl flex justify-between items-center gap-4">
+                        <div class="flex flex-col"><span class="text-xs text-gray-500 uppercase font-bold">รวม</span><div class="flex items-baseline gap-1"><span class="text-3xl font-extrabold text-primary-600" id="total-score-display">0</span><span class="text-sm text-gray-400 font-medium">/100</span></div></div>
+                        <button type="submit" id="submit-score-btn" class="flex-1 max-w-[200px] py-3 btn-primary rounded-xl font-bold shadow-lg flex items-center justify-center gap-2"><i class="fas fa-save"></i> บันทึก</button>
+                    </div>
+                </div>
+            </form>
+        </section>
+
+        <!-- ADMIN -->
+        <section id="admin-section" class="hidden space-y-8">
+            <h2 class="text-2xl font-bold text-primary-900">Admin Panel</h2>
+            
+            <div class="glass-card p-6 border-l-4 border-indigo-500">
+                <h3 class="font-bold text-lg mb-4 text-gray-700 flex items-center gap-2"><i class="fas fa-sliders-h text-indigo-500"></i> ตั้งค่าระบบ</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div id="manual-control-group">
+                        <label class="flex items-center cursor-pointer mb-2">
+                            <input type="checkbox" id="chk-manual-open" class="sr-only peer" onchange="saveSystemConfig()">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 relative"></div>
+                            <span class="ml-3 text-sm font-medium text-gray-900">เปิดระบบ Manual</span>
+                        </label>
+                        <p class="text-xs text-gray-500 ml-14">เปิด-ปิดทันที</p>
+                    </div>
+                    <div id="auto-control-group" class="border-t md:border-t-0 md:border-l border-gray-100 pt-4 md:pt-0 md:pl-6">
+                        <label class="flex items-center mb-3"><input type="checkbox" id="chk-auto-timer" class="mr-2 accent-indigo-600" onchange="saveSystemConfig()"><span class="text-sm font-bold text-gray-700">ตั้งเวลาอัตโนมัติ</span></label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div><label class="text-xs text-gray-500">เริ่ม</label><input type="datetime-local" id="date-start" class="w-full text-xs p-2 soft-input" onchange="saveSystemConfig()"></div>
+                            <div><label class="text-xs text-gray-500">สิ้นสุด</label><input type="datetime-local" id="date-end" class="w-full text-xs p-2 soft-input" onchange="saveSystemConfig()"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card p-6">
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div>
+                        <h4 class="font-bold text-gray-700 mb-2">จัดการลิงก์</h4>
+                        <form onsubmit="handleAddLink(event)" class="flex gap-2 mb-2"><input id="link-title" placeholder="Title" class="w-1/3 p-2 text-xs soft-input" required><input id="link-url" placeholder="URL" class="flex-1 p-2 text-xs soft-input" required><button class="bg-primary-600 text-white px-3 rounded text-xs shadow-md">Add</button></form>
+                        <div id="admin-links-list" class="max-h-32 overflow-y-auto mt-2"></div>
+                    </div>
+                    <div class="flex flex-col justify-center border-l pl-6 border-gray-100">
+                         <h4 class="font-bold text-red-600 mb-2">Danger Zone</h4>
+                         <button onclick="clearAllScores()" class="w-full py-2 border border-red-200 text-red-600 rounded-lg bg-red-50 hover:bg-red-100 text-sm font-bold transition"><i class="fas fa-trash"></i> ล้างคะแนนทั้งหมด</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card p-6">
+                <div class="flex justify-between mb-4"><h3 class="font-bold text-gray-700">ผู้ใช้งาน</h3><button onclick="renderUserManagement()" class="text-xs bg-gray-100 px-2 rounded hover:bg-gray-200"><i class="fas fa-sync"></i></button></div>
+                <div id="admin-user-list"></div>
+            </div>
+
+            <div class="glass-card p-6">
+                <h3 class="font-bold text-gray-700 mb-4">สรุปผลคะแนน</h3>
+                <div class="flex gap-2 mb-4">
+                    <select id="admin-filter-level" onchange="filterAdminScores()" class="p-2 soft-input text-sm"><option value="ALL">ทุกระดับ</option><option value="ม.1">ม.1</option><option value="ม.2">ม.2</option><option value="ม.3">ม.3</option><option value="ม.4">ม.4</option><option value="ม.5">ม.5</option><option value="ม.6">ม.6</option></select>
+                    <button onclick="exportCSV()" class="bg-green-600 text-white px-3 py-2 rounded-lg text-sm shadow hover:bg-green-700 font-medium transition whitespace-nowrap"><i class="fas fa-file-excel"></i> Export CSV</button>
+                    <div class="bg-gray-100 p-1 rounded-lg flex gap-1 ml-auto">
+                        <button id="btn-view-summary" onclick="toggleAdminView('summary')" class="px-3 py-1 rounded-md bg-primary-600 text-white shadow-sm text-xs font-bold transition">Ranking</button>
+                        <button id="btn-view-detail" onclick="toggleAdminView('detail')" class="px-3 py-1 rounded-md text-gray-500 text-xs font-bold transition">Detail</button>
+                    </div>
+                </div>
+                <div id="admin-score-list"></div>
+            </div>
+        </section>
+
+    </main>
+    
+    <!-- MODALS -->
+    <div id="detail-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 fade-in"><div class="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl"><div class="p-4 border-b flex justify-between items-center font-bold text-primary-900"><span>รายละเอียดคะแนน</span><button onclick="closeDetailModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-red-100 text-gray-500">&times;</button></div><div id="detail-content" class="p-5 overflow-y-auto"></div></div></div>
+    
+    <!-- EDIT SCORE MODAL -->
+    <div id="edit-score-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 fade-in">
+        <div class="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl">
+            <div class="p-4 border-b flex justify-between items-center font-bold text-yellow-600 bg-yellow-50 rounded-t-2xl">
+                <span><i class="fas fa-edit mr-2"></i>แก้ไขคะแนน</span>
+                <button onclick="closeEditModal()" class="w-8 h-8 rounded-full bg-white flex items-center justify-center hover:bg-red-100 text-gray-500">&times;</button>
+            </div>
+            <div class="p-5 overflow-y-auto">
+                <h4 class="text-sm font-bold text-gray-700 mb-4 text-center" id="edit-score-title"></h4>
+                <input type="hidden" id="edit-score-id">
+                <div id="edit-score-inputs"></div>
+                <div class="mt-4 flex justify-between items-center bg-gray-100 p-3 rounded-lg">
+                    <span class="font-bold text-gray-700">รวมใหม่:</span>
+                    <span id="edit-total-display" class="font-extrabold text-2xl text-primary-600">0</span>
+                </div>
+            </div>
+            <div class="p-4 border-t bg-gray-50 flex gap-3 rounded-b-2xl">
+                <button onclick="closeEditModal()" class="flex-1 bg-white border hover:bg-gray-100 text-gray-700 py-2 rounded-lg font-bold">ยกเลิก</button>
+                <button onclick="saveEditedScore()" class="flex-1 bg-primary-600 hover:bg-primary-700 text-white py-2 rounded-lg font-bold shadow-md">บันทึกการแก้ไข</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="assign-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4 fade-in"><div class="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden"><div class="bg-primary-600 p-5 text-white font-bold">มอบหมายงาน: <span id="assign-name" class="font-normal opacity-90"></span></div><div class="p-6 grid grid-cols-3 gap-3" id="assign-checks"></div><div class="p-6 pt-0 flex gap-3"><button onclick="closeAssignModal()" class="flex-1 bg-gray-100 py-2.5 rounded-xl font-bold text-gray-600 hover:bg-gray-200">ยกเลิก</button><button onclick="saveAssignment()" class="flex-1 bg-primary-600 text-white py-2.5 rounded-xl font-bold shadow-lg hover:bg-primary-700">บันทึก</button></div></div></div>
+
+    <footer class="mt-auto py-8 bg-white border-t border-gray-100 text-center">
+        <div class="container mx-auto px-4">
+            <p class="text-sm font-bold text-primary-900">&copy; 2024 SPT MORAL SCHOOL</p>
+            <p class="text-xs text-gray-500 mt-1">โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง | All Rights Reserved</p>
+        </div>
+    </footer>
+
+    <script>
+        const modalBody = document.getElementById('assign-checks');
+        ['ม.1','ม.2','ม.3','ม.4','ม.5','ม.6'].forEach(l => {
+           const div = document.createElement('label');
+           div.className = "flex items-center justify-center border-2 border-gray-100 p-2 rounded-xl cursor-pointer hover:border-primary-500 hover:bg-blue-50 transition";
+           div.innerHTML = `<input type="checkbox" id="chk-${l}" class="mr-2 accent-primary-600"> <span class="font-bold text-gray-700">${l}</span>`;
+           modalBody.appendChild(div);
+        });
+    </script>
+</body>
+</html>
+
