@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบตัดสินการประเมิน ๑ ห้องเรียน ๑ โครงงานคุณธรรม</title>
+    
+    <!-- Google Fonts: Sarabun & Prompt -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, setDoc, getDoc, updateDoc, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyC1g1OTvol9087rKDDncS28uW0cSA-tSO8",
+            authDomain: "moral-contest.firebaseapp.com",
+            projectId: "moral-contest",
+            storageBucket: "moral-contest.firebasestorage.app",
+            messagingSenderId: "37936943967",
+            appId: "1:37936943967:web:57e6654d197e76dc8d9cea",
+            measurementId: "G-ZHFQM3WYE6"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Global State
+        let currentUserData = null;
+        
+        // --- AUTHENTICATION ---
+
+        // Register
+        window.handleRegister = async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('reg-email').value;
+            const password = document.getElementById('reg-password').value;
+            const name = document.getElementById('reg-name').value;
+            const errorMsg = document.getElementById('reg-error');
+
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+                
+                // Save user data (Role default: pending)
+                await setDoc(doc(db, "users", user.uid), {
+                    uid: user.uid,
+                    name: name,
+                    email: email,
+                    role: "pending", // pending, judge, admin
+                    assignedLevels: [],
+                    createdAt: new Date()
+                });
+
+                alert("ลงทะเบียนสำเร็จ! กรุณารอผู้ดูแลอนุมัติสิทธิ์การใช้งาน");
+                showSection('login-section');
+            } catch (error) {
+                console.error(error);
+                errorMsg.textContent = "เกิดข้อผิดพลาด: " + error.message;
+                errorMsg.classList.remove('hidden');
+            }
+        };
+
+        // Login
+        window.handleLogin = async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            const errorMsg = document.getElementById('login-error');
+            const loginBtn = document.getElementById('login-btn');
+
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังเข้าสู่ระบบ...';
+            
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                // onAuthStateChanged will handle the redirect
+            } catch (error) {
+                console.error(error);
+                loginBtn.innerHTML = 'เข้าสู่ระบบ';
+                errorMsg.textContent = "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
+                errorMsg.classList.remove('hidden');
+            }
+        };
+
+        // Logout
+        window.handleLogout = () => {
+            signOut(auth).then(() => {
+                currentUserData = null;
+                showSection('login-section');
+                document.getElementById('nav-menu').classList.add('hidden');
+            });
+        };
+
+        // Auth State Listener
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                // Fetch Role
+                const docRef = doc(db, "users", user.uid);
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    currentUserData = docSnap.data();
+                    document.getElementById('user-name-display').textContent = currentUserData.name;
+                    document.getElementById('nav-menu').classList.remove('hidden');
+
+                    if (currentUserData.role === 'admin') {
+                        document.getElementById('admin-link').classList.remove('hidden');
+                        loadAdminDashboard();
+                        showSection('admin-section');
+                    } else if (currentUserData.role === 'judge') {
+                        document.getElementById('admin-link').classList.add('hidden');
+                        loadJudgeDashboard();
+                        showSection('dashboard-section');
+                    } else {
+                        // Pending
+                        document.getElementById('nav-menu').classList.add('hidden');
+                        showSection('pending-section');
+                    }
+                } else {
+                    console.log("No user data found");
+                    signOut(auth);
+                }
+            } else {
+                showSection('login-section');
+                document.getElementById('nav-menu').classList.add('hidden');
+            }
+        });
+
+        // --- JUDGE FUNCTIONS ---
+
+        async function loadJudgeDashboard() {
+            const container = document.getElementById('judge-assigned-list');
+            container.innerHTML = '<p class="text-gray-500">กำลังโหลดข้อมูล...</p>';
+
+            const assigned = currentUserData.assignedLevels || [];
+            
+            if (assigned.length === 0) {
+                container.innerHTML = '<div class="p-4 bg-yellow-50 text-yellow-700 rounded-xl border border-yellow-200">คุณยังไม่ได้รับมอบหมายระดับชั้นใดๆ กรุณาติดต่อผู้ดูแลระบบ</div>';
+                return;
+            }
+
+            // Populate Dropdown for scoring (Levels)
+            const levelSelect = document.getElementById('score-level');
+            levelSelect.innerHTML = '<option value="">เลือกระดับชั้น</option>';
+            assigned.forEach(lvl => {
+                const opt = document.createElement('option');
+                opt.value = lvl;
+                opt.textContent = lvl;
+                levelSelect.appendChild(opt);
+            });
+
+            // Populate Dropdown for scoring (Rooms 1-12)
+            const roomSelect = document.getElementById('score-room');
+            roomSelect.innerHTML = '<option value="">เลือกห้อง</option>';
+            for(let i=1; i<=12; i++) {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = `ห้อง ${i}`;
+                roomSelect.appendChild(opt);
+            }
+
+            // Show summary of scored classes
+            const q = query(collection(db, "scores"), where("judgeId", "==", currentUserData.uid));
+            const querySnapshot = await getDocs(q);
+            
+            let html = `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">`;
+            
+            if (querySnapshot.empty) {
+                container.innerHTML = '<div class="p-6 text-center text-gray-500 bg-white/50 rounded-xl border border-blue-100">ยังไม่มีประวัติการให้คะแนน</div>';
+            } else {
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    html += `
+                        <div class="glass-card p-4 rounded-xl flex justify-between items-center border-l-4 border-blue-500">
+                            <div>
+                                <h3 class="font-bold text-blue-800 text-lg">${data.level} ห้อง ${data.room}</h3>
+                                <p class="text-xs text-gray-400"><i class="far fa-clock"></i> ${data.timestamp ? new Date(data.timestamp.seconds * 1000).toLocaleTimeString('th-TH') : '-'}</p>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-2xl font-bold text-blue-600">${data.total}</span>
+                                <span class="text-xs text-gray-400 block">/ 100 คะแนน</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+                container.innerHTML = html;
+            }
+        }
+
+        window.goToScoring = () => {
+            document.getElementById('score-form').reset();
+            document.getElementById('score-success').classList.add('hidden');
+            document.getElementById('total-score').textContent = '0';
+            showSection('scoring-section');
+        }
+
+        window.calculateTotal = () => {
+            let total = 0;
+            // Loop c1 to c10
+            for (let i = 1; i <= 10; i++) {
+                const val = parseFloat(document.getElementById(`c${i}`).value) || 0;
+                // Clamp value just in case UI fails (max 10)
+                if(val > 10) {
+                     // Optionally alert or just calculate
+                }
+                total += val;
+            }
+            document.getElementById('total-score').textContent = total;
+            return total;
+        }
+
+        window.submitScore = async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button[type="submit"]');
+            const originalBtnText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังบันทึก...';
+            btn.disabled = true;
+
+            const level = document.getElementById('score-level').value;
+            const room = document.getElementById('score-room').value;
+            
+            if (!level || !room) {
+                alert("กรุณาเลือกระดับชั้นและห้องเรียน");
+                btn.innerHTML = originalBtnText;
+                btn.disabled = false;
+                return;
+            }
+
+            const scores = {};
+            let total = 0;
+            for(let i=1; i<=10; i++) {
+                const val = parseFloat(document.getElementById(`c${i}`).value) || 0;
+                scores[`c${i}`] = val;
+                total += val;
+            }
+
+            const classId = `${level}/${room}`;
+
+            try {
+                // Doc ID format: judgeID_Level_Room
+                const docId = `${currentUserData.uid}_${level}_${room}`; 
+                
+                await setDoc(doc(db, "scores", docId), {
+                    judgeId: currentUserData.uid,
+                    judgeName: currentUserData.name,
+                    level: level,
+                    room: room, // Stores "1", "2" etc.
+                    classId: classId,
+                    criteria: scores,
+                    total: total,
+                    timestamp: new Date()
+                });
+
+                document.getElementById('score-success').classList.remove('hidden');
+                
+                // Scroll to bottom to see success message
+                window.scrollTo(0, document.body.scrollHeight);
+
+                setTimeout(() => {
+                    showSection('dashboard-section');
+                    loadJudgeDashboard();
+                }, 1500);
+
+            } catch (error) {
+                console.error(error);
+                alert("เกิดข้อผิดพลาดในการบันทึก: " + error.message);
+            } finally {
+                btn.innerHTML = originalBtnText;
+                btn.disabled = false;
+            }
+        };
+
+        // --- ADMIN FUNCTIONS ---
+
+        async function loadAdminDashboard() {
+            renderUserManagement();
+            renderScoreReport();
+        }
+
+        async function renderUserManagement() {
+            const userList = document.getElementById('admin-user-list');
+            userList.innerHTML = '<p>กำลังโหลด...</p>';
+            
+            const q = query(collection(db, "users"));
+            const snapshot = await getDocs(q);
+            
+            let html = `<div class="overflow-x-auto"><table class="w-full text-sm text-left text-gray-500">
+                <thead class="text-xs text-gray-700 uppercase bg-blue-50">
+                    <tr>
+                        <th class="px-4 py-3">ชื่อ</th>
+                        <th class="px-4 py-3">สถานะ</th>
+                        <th class="px-4 py-3">มอบหมายชั้น</th>
+                        <th class="px-4 py-3">จัดการ</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            snapshot.forEach(doc => {
+                const u = doc.data();
+                if (u.role === 'admin') return; 
+
+                const isPending = u.role === 'pending';
+                const statusBadge = isPending 
+                    ? `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded">รออนุมัติ</span>`
+                    : `<span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded">อนุมัติแล้ว</span>`;
+
+                const levelsDisplay = (u.assignedLevels || []).join(", ") || "-";
+
+                html += `<tr class="bg-white border-b hover:bg-gray-50">
+                    <td class="px-4 py-3 font-medium text-gray-900">${u.name}<br><span class="text-xs text-gray-400">${u.email}</span></td>
+                    <td class="px-4 py-3">${statusBadge}</td>
+                    <td class="px-4 py-3 max-w-[150px] truncate">${levelsDisplay}</td>
+                    <td class="px-4 py-3 space-x-2">
+                        ${isPending ? `<button onclick="approveUser('${u.uid}')" class="text-green-600 hover:underline">อนุมัติ</button>` : ''}
+                        <button onclick="openAssignModal('${u.uid}', '${u.name}')" class="text-blue-600 hover:underline">มอบหมาย</button>
+                    </td>
+                </tr>`;
+            });
+            html += `</tbody></table></div>`;
+            userList.innerHTML = html;
+        }
+
+        window.approveUser = async (uid) => {
+            if(confirm("ยืนยันการอนุมัติผู้ใช้นี้?")) {
+                await updateDoc(doc(db, "users", uid), { role: "judge" });
+                renderUserManagement();
+            }
+        };
+
+        window.openAssignModal = async (uid, name) => {
+            const levels = prompt(`กรุณาระบุระดับชั้นที่ต้องการมอบหมายให้ ${name} (เช่น ม.1, ม.2):`, "ม.1, ม.2, ม.3, ม.4, ม.5, ม.6");
+            if (levels) {
+                const levelArray = levels.split(',').map(s => s.trim());
+                await updateDoc(doc(db, "users", uid), { assignedLevels: levelArray });
+                alert("บันทึกการมอบหมายเรียบร้อย");
+                renderUserManagement();
+            }
+        };
+
+        async function renderScoreReport() {
+            const container = document.getElementById('admin-score-list');
+            const levelFilter = document.getElementById('admin-filter-level').value;
+            
+            // แก้ไข: ดึงข้อมูลทั้งหมดโดยไม่ใช้ complex query เพื่อหลีกเลี่ยง error เรื่อง Index
+            // แล้วนำมา Filter/Sort ใน Javascript แทน
+            const q = query(collection(db, "scores"));
+            
+            try {
+                const snapshot = await getDocs(q);
+                
+                let html = `<div class="overflow-x-auto"><table class="w-full text-sm text-left text-gray-500">
+                    <thead class="text-xs text-white uppercase bg-blue-600">
+                        <tr>
+                            <th class="px-4 py-3">ระดับ</th>
+                            <th class="px-4 py-3">ห้อง</th>
+                            <th class="px-4 py-3">กรรมการ</th>
+                            <th class="px-4 py-3 text-right">คะแนนรวม (100)</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+                if (snapshot.empty) {
+                    html += `<tr><td colspan="4" class="text-center py-4">ไม่พบข้อมูลคะแนน</td></tr>`;
+                }
+
+                // Client-side Filter & Sort
+                const docs = [];
+                snapshot.forEach(d => {
+                    const data = d.data();
+                    // กรองข้อมูลตามระดับชั้นที่เลือก
+                    if (levelFilter === 'ALL' || data.level === levelFilter) {
+                        docs.push(data);
+                    }
+                });
+                
+                // เรียงลำดับ: ระดับชั้น -> ห้อง (ตัวเลข)
+                docs.sort((a,b) => {
+                    if(a.level !== b.level) return a.level.localeCompare(b.level);
+                    return parseInt(a.room) - parseInt(b.room);
+                });
+
+                docs.forEach(s => {
+                    html += `<tr class="bg-white border-b hover:bg-gray-50">
+                        <td class="px-4 py-3">${s.level}</td>
+                        <td class="px-4 py-3 font-bold">${s.room}</td>
+                        <td class="px-4 py-3 text-xs md:text-sm">${s.judgeName}</td>
+                        <td class="px-4 py-3 text-right font-bold text-blue-600">${s.total}</td>
+                    </tr>`;
+                });
+
+                html += `</tbody></table></div>`;
+                container.innerHTML = html;
+            } catch (e) {
+                console.error("Query Error", e);
+                container.innerHTML = `<div class="text-red-500 p-4">เกิดข้อผิดพลาดในการโหลดข้อมูล: ${e.message}</div>`;
+            }
+        }
+
+        window.filterAdminScores = () => {
+            renderScoreReport();
+        };
+
+        window.exportCSV = async () => {
+            const levelFilter = document.getElementById('admin-filter-level').value;
+            
+            // แก้ไข: ดึงข้อมูลทั้งหมดแล้ว Filter ใน JS เช่นกัน เพื่อป้องกัน Error
+            const q = query(collection(db, "scores"));
+            
+            const snapshot = await getDocs(q);
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "\uFEFF"; // BOM
+            // Updated Header for 10 Criteria
+            csvContent += "ระดับชั้น,ห้อง,กรรมการ,ข้อ1(10),ข้อ2(10),ข้อ3(10),ข้อ4(10),ข้อ5(10),ข้อ6(10),ข้อ7(10),ข้อ8(10),ข้อ9(10),ข้อ10(10),รวม(100)\n";
+
+            // เตรียมข้อมูลสำหรับ Export
+            const docs = [];
+            snapshot.forEach(doc => {
+                const s = doc.data();
+                if (levelFilter === 'ALL' || s.level === levelFilter) {
+                    docs.push(s);
+                }
+            });
+
+            // เรียงลำดับก่อน Export
+            docs.sort((a,b) => {
+                if(a.level !== b.level) return a.level.localeCompare(b.level);
+                return parseInt(a.room) - parseInt(b.room);
+            });
+
+            docs.forEach(s => {
+                const c = s.criteria;
+                // Construct row
+                const row = `${s.level},${s.room},${s.judgeName},` +
+                            `${c.c1},${c.c2},${c.c3},${c.c4},${c.c5},${c.c6},${c.c7},${c.c8},${c.c9},${c.c10},${s.total}`;
+                csvContent += row + "\n";
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `scores_export_${levelFilter}_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
+        window.showSection = (sectionId) => {
+            ['login-section', 'register-section', 'dashboard-section', 'scoring-section', 'admin-section', 'pending-section'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+            document.getElementById(sectionId).classList.remove('hidden');
+            window.scrollTo(0, 0);
+        };
+
+    </script>
+
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            background: linear-gradient(135deg, #f0f4ff 0%, #e0eaff 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            color: #1e3a8a;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            border-radius: 16px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            transition: all 0.3s ease;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .soft-input {
+            background: #f1f5f9;
+            box-shadow: inset 2px 2px 5px #e2e8f0, inset -2px -2px 5px #ffffff;
+            border: none;
+            border-radius: 12px;
+        }
+        
+        .soft-input:focus {
+            outline: none;
+            box-shadow: inset 1px 1px 2px #e2e8f0, inset -1px -1px 2px #ffffff, 0 0 0 2px #3b82f6;
+        }
+
+        .soft-btn-primary {
+            background: linear-gradient(145deg, #3b82f6, #2563eb);
+            color: white;
+            box-shadow: 4px 4px 10px rgba(37, 99, 235, 0.3), -4px -4px 10px rgba(255, 255, 255, 0.5);
+            transition: all 0.2s ease;
+        }
+        
+        .soft-btn-primary:active {
+             transform: scale(0.98);
+             box-shadow: inset 2px 2px 5px rgba(0,0,0,0.2);
+        }
+
+        /* Criteria Label Styling */
+        .criteria-label {
+            display: block;
+            font-size: 0.9rem;
+            color: #475569;
+            margin-bottom: 0.5rem;
+            line-height: 1.4;
+        }
+
+        .score-input {
+            transition: all 0.2s;
+            font-size: 1.1rem;
+        }
+        .score-input:focus {
+            background-color: #fff;
+            color: #2563eb;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Sarabun', sans-serif;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- NAV BAR -->
+    <nav class="glass sticky top-0 z-50 px-4 py-3 mb-6 shadow-sm">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <img src="https://img5.pic.in.th/file/secure-sv1/IMG_25650953161d1c1bbdd8.jpeg" alt="Logo" class="h-10 w-10 rounded-full shadow-md object-cover border-2 border-white">
+                <div>
+                    <h1 class="text-sm md:text-lg text-blue-800 leading-tight font-bold">SPT MORAL SCHOOL</h1>
+                    <p class="text-[10px] text-blue-500">ระบบตัดสินโครงงานคุณธรรม</p>
+                </div>
+            </div>
+            
+            <div id="nav-menu" class="hidden flex items-center gap-4">
+                <div class="hidden md:flex items-center gap-4 text-sm font-medium text-gray-600">
+                    <button onclick="showSection('dashboard-section')" class="hover:text-blue-600 transition">หน้าหลัก</button>
+                    <button id="admin-link" onclick="showSection('admin-section')" class="hidden hover:text-blue-600 transition">ผู้ดูแลระบบ</button>
+                    <span class="text-gray-300">|</span>
+                    <span id="user-name-display" class="text-blue-600 font-bold"></span>
+                </div>
+                <button onclick="handleLogout()" class="text-red-500 hover:bg-red-50 p-2 rounded-full transition" title="ออกจากระบบ">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-grow container mx-auto px-4 pb-12 max-w-5xl">
+
+        <!-- LOGIN SECTION -->
+        <section id="login-section" class="max-w-md mx-auto mt-10">
+            <div class="glass-card p-8 text-center">
+                <img src="https://img5.pic.in.th/file/secure-sv1/IMG_25650953161d1c1bbdd8.jpeg" class="w-24 h-24 rounded-full mx-auto mb-4 shadow-lg object-cover border-4 border-white">
+                <h2 class="text-2xl text-blue-800 mb-2">เข้าสู่ระบบ</h2>
+                <p class="text-gray-500 text-sm mb-6">ระบบตัดสินการประเมิน ๑ ห้องเรียน ๑ โครงงานคุณธรรม</p>
+                
+                <form onsubmit="handleLogin(event)" class="space-y-4">
+                    <input type="email" id="login-email" placeholder="อีเมล" class="w-full p-3 soft-input" required>
+                    <input type="password" id="login-password" placeholder="รหัสผ่าน" class="w-full p-3 soft-input" required>
+                    
+                    <p id="login-error" class="text-red-500 text-sm hidden"></p>
+
+                    <button type="submit" id="login-btn" class="w-full py-3 rounded-xl soft-btn-primary font-bold shadow-lg transition transform hover:scale-[1.02]">
+                        เข้าสู่ระบบ
+                    </button>
+                </form>
+
+                <div class="mt-6 pt-6 border-t border-gray-100">
+                    <p class="text-sm text-gray-500">ยังไม่มีบัญชี?</p>
+                    <button onclick="showSection('register-section')" class="text-blue-600 font-semibold hover:underline mt-1">ลงทะเบียนกรรมการ</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- REGISTER SECTION -->
+        <section id="register-section" class="max-w-md mx-auto mt-10 hidden">
+            <div class="glass-card p-8">
+                <button onclick="showSection('login-section')" class="text-gray-400 hover:text-blue-600 mb-4"><i class="fas fa-arrow-left"></i> กลับ</button>
+                <h2 class="text-2xl text-blue-800 mb-6 text-center">ลงทะเบียนกรรมการ</h2>
+                
+                <form onsubmit="handleRegister(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1 ml-1">ชื่อ-นามสกุล (สำหรับแสดงผล)</label>
+                        <input type="text" id="reg-name" placeholder="เช่น ครูสมชาย ใจดี" class="w-full p-3 soft-input" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1 ml-1">อีเมล</label>
+                        <input type="email" id="reg-email" class="w-full p-3 soft-input" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1 ml-1">รหัสผ่าน (6 ตัวขึ้นไป)</label>
+                        <input type="password" id="reg-password" class="w-full p-3 soft-input" required minlength="6">
+                    </div>
+
+                    <p id="reg-error" class="text-red-500 text-sm hidden"></p>
+
+                    <button type="submit" class="w-full py-3 rounded-xl soft-btn-primary font-bold shadow-lg mt-2">
+                        ลงทะเบียน
+                    </button>
+                </form>
+            </div>
+        </section>
+
+        <!-- PENDING APPROVAL -->
+        <section id="pending-section" class="max-w-md mx-auto mt-10 hidden text-center">
+            <div class="glass-card p-8">
+                <div class="text-yellow-500 text-5xl mb-4"><i class="fas fa-clock"></i></div>
+                <h2 class="text-xl font-bold text-gray-800 mb-2">รอการอนุมัติ</h2>
+                <p class="text-gray-600 mb-6">บัญชีของคุณลงทะเบียนเรียบร้อยแล้ว กรุณารอผู้ดูแลระบบอนุมัติสิทธิ์การใช้งานเพื่อเข้าสู่ระบบประเมิน</p>
+                <button onclick="handleLogout()" class="text-blue-600 hover:underline">กลับไปหน้าล็อกอิน</button>
+            </div>
+        </section>
+
+        <!-- DASHBOARD (MAIN PAGE FOR JUDGE) -->
+        <section id="dashboard-section" class="hidden">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                <h2 class="text-2xl text-blue-900 font-bold">แผงควบคุมกรรมการ</h2>
+                <button onclick="goToScoring()" class="w-full md:w-auto bg-blue-600 text-white px-6 py-2 rounded-xl shadow-lg hover:bg-blue-700 transition flex items-center justify-center gap-2">
+                    <i class="fas fa-plus"></i> ประเมินห้องใหม่
+                </button>
+            </div>
+
+            <div class="mb-4">
+                <h3 class="text-lg text-gray-600 mb-3"><i class="fas fa-history mr-2"></i>ประวัติการประเมินของคุณ</h3>
+                <div id="judge-assigned-list">
+                    <!-- JS Populates this -->
+                </div>
+            </div>
+        </section>
+
+        <!-- SCORING PAGE -->
+        <section id="scoring-section" class="hidden max-w-3xl mx-auto">
+            <div class="flex items-center mb-4">
+                <button onclick="showSection('dashboard-section')" class="mr-4 w-10 h-10 rounded-full bg-white shadow flex items-center justify-center text-gray-500 hover:text-blue-600">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2 class="text-2xl text-blue-900 font-bold">แบบฟอร์มให้คะแนน</h2>
+            </div>
+
+            <div class="glass-card p-6 md:p-8">
+                <form id="score-form" onsubmit="submitScore(event)">
+                    <!-- Selection -->
+                    <div class="grid grid-cols-2 gap-4 mb-6 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                        <div>
+                            <label class="block text-sm text-blue-800 font-bold mb-1 ml-1">ระดับชั้น</label>
+                            <select id="score-level" class="w-full p-3 soft-input bg-white" required>
+                                <!-- JS Populates based on assignment -->
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-blue-800 font-bold mb-1 ml-1">ห้อง</label>
+                            <select id="score-room" class="w-full p-3 soft-input bg-white" required>
+                                <!-- JS Populates 1-12 -->
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="space-y-6 mb-8">
+                        <div class="flex justify-between items-end border-b pb-2">
+                            <h4 class="font-bold text-gray-700">เกณฑ์การประเมิน</h4>
+                            <span class="text-xs text-gray-500">ข้อละ 10 คะแนน</span>
+                        </div>
+                        
+                        <!-- Criteria Items 1-10 -->
+                        <div class="grid gap-6">
+                            <!-- Item 1 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">1.</span> 
+                                    มีกระบวนการทางปัญญาในการสำรวจ เลือกประเด็นปัญหา ประมวลข้อมูล การคิดวิเคราะห์ สังเคราะห์ การประมวลผล
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c1" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                            <!-- Item 2 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">2.</span>
+                                    การนำหลักธรรมแนวพระราชดำริ พระราชดำรัส มาปรับใช้ได้สอดคล้อง เหมาะสมตรงกับประเด็นปัญหา
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c2" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                            <!-- Item 3 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">3.</span>
+                                    มีคุณประโยชน์และความสำคัญในการแก้ปัญหาศีลธรรม
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c3" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                            <!-- Item 4 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">4.</span>
+                                    มีวิธีคิดกิจกรรมที่ใช้ในการแก้ปัญหาที่สร้างสรรค์แปลกใหม่และทำได้จริงตามวัตถุประสงค์
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c4" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                            <!-- Item 5 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">5.</span>
+                                    การนำเสนอด้วยความคิดสร้างสรรค์ เทคนิควิธีการ สื่อ โปสเตอร์ และบุคลิกภาพในการสื่อสาร
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c5" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                            <!-- Item 6 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">6.</span>
+                                    มีร่องรอยการจัดทำกิจกรรมอย่างต่อเนื่อง มีภาพถ่ายหรือวีดีโอที่แสดงกระบวนการเห็นผลลัพธ์ มีการแสดงค่าสถิติอย่างชัดเจนต่อเนื่อง
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c6" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                            <!-- Item 7 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">7.</span>
+                                    ผลลัพธ์ความสำเร็จ มีพฤติกรรมบ่งชี้เชิงบวกที่ต้องการให้เกิดขึ้นเป็นไปตามเป้าหมาย
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c7" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                            <!-- Item 8 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">8.</span>
+                                    การส่งรูปเล่มโครงงานตามกำหนดการที่ได้มีการกำหนดไว้ครบทุกประเด็น
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c8" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                            <!-- Item 9 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">9.</span>
+                                    มีการระบุเป้าหมายเชิงปริมาณและเชิงคุณภาพ มีความชัดเจนสอดคล้องและเป็นไปได้ ประสบความสำเร็จตามเป้าหมาย
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c9" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                            <!-- Item 10 -->
+                            <div class="bg-white/40 p-3 rounded-lg border border-white">
+                                <label class="criteria-label">
+                                    <span class="font-bold text-blue-600 mr-1">10.</span>
+                                    นักเรียนมีการนำเสนอปัจจัยความสำเร็จ ปัญหา/อุปสรรค/แนวทางการพัฒนานำเสนอ ตอบคำถามข้อสงสัยได้อย่างชัดเจน
+                                </label>
+                                <div class="flex items-center justify-end gap-2 mt-2">
+                                    <span class="text-xs text-gray-400">คะแนน (0-10):</span>
+                                    <input type="number" id="c10" min="0" max="10" step="0.5" class="w-24 p-2 soft-input text-center score-input font-bold text-blue-600" onchange="calculateTotal()" onkeyup="calculateTotal()" required placeholder="0">
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <div class="sticky bottom-4 bg-white/90 backdrop-blur p-4 rounded-xl shadow-lg border border-blue-100 flex justify-between items-center mb-6 z-10">
+                        <span class="text-blue-800 font-bold">คะแนนรวม</span>
+                        <div class="text-right">
+                            <span id="total-score" class="text-4xl font-bold text-blue-600">0</span>
+                            <span class="text-sm text-gray-500">/ 100</span>
+                        </div>
+                    </div>
+
+                    <div id="score-success" class="hidden mb-4 p-4 bg-green-100 text-green-700 rounded-xl text-center border border-green-200">
+                        <i class="fas fa-check-circle text-2xl mb-2 block"></i> 
+                        <span class="font-bold">บันทึกคะแนนเรียบร้อยแล้ว</span>
+                    </div>
+
+                    <button type="submit" class="w-full py-4 rounded-xl soft-btn-primary font-bold text-lg shadow-lg">
+                        ยืนยันการบันทึก
+                    </button>
+                </form>
+            </div>
+        </section>
+
+        <!-- ADMIN SECTION -->
+        <section id="admin-section" class="hidden">
+            <h2 class="text-2xl text-blue-900 font-bold mb-6">ระบบจัดการ (Admin)</h2>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                
+                <!-- Manage Users -->
+                <div class="glass-card p-6">
+                    <h3 class="font-bold text-gray-700 mb-4 border-b pb-2 flex justify-between items-center">
+                        <span>จัดการผู้ใช้งาน</span>
+                        <button onclick="renderUserManagement()" class="text-xs text-blue-500 hover:bg-blue-50 px-2 py-1 rounded"><i class="fas fa-sync"></i> รีเฟรช</button>
+                    </h3>
+                    <div id="admin-user-list">
+                        <!-- JS Loads Users -->
+                    </div>
+                </div>
+
+                <!-- Score Reports -->
+                <div class="glass-card p-6">
+                    <h3 class="font-bold text-gray-700 mb-4 border-b pb-2">สรุปผลคะแนน</h3>
+                    
+                    <div class="flex flex-wrap gap-2 mb-4">
+                        <select id="admin-filter-level" onchange="filterAdminScores()" class="p-2 soft-input text-sm flex-grow">
+                            <option value="ALL">ทุกระดับชั้น</option>
+                            <option value="ม.1">ม.1</option>
+                            <option value="ม.2">ม.2</option>
+                            <option value="ม.3">ม.3</option>
+                            <option value="ม.4">ม.4</option>
+                            <option value="ม.5">ม.5</option>
+                            <option value="ม.6">ม.6</option>
+                        </select>
+                        <button onclick="exportCSV()" class="bg-green-600 text-white px-3 py-2 rounded-lg text-sm shadow hover:bg-green-700 flex items-center gap-1">
+                            <i class="fas fa-file-excel"></i> Export CSV
+                        </button>
+                    </div>
+
+                    <div id="admin-score-list">
+                        <!-- JS Loads Scores -->
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="mt-auto py-6 bg-white/40 backdrop-blur-sm border-t border-white/50 text-center">
+        <div class="container mx-auto px-4">
+            <p class="text-sm text-blue-900 font-semibold">&copy; 2024 SPT MORAL SCHOOL</p>
+            <p class="text-xs text-gray-500 mt-1">โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง | All Rights Reserved</p>
+        </div>
+    </footer>
+
+</body>
+</html>
+
+
