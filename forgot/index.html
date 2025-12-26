@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ตั้งรหัสผ่านใหม่ (Firebase Live)</title>
+    <!-- Load Tailwind CSS for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font and base styling */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+            min-height: 100vh;
+        }
+        /* Custom style for the message box */
+        .message-box {
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            font-weight: 500;
+        }
+        .success {
+            background-color: #d1fae5; /* Green 100 */
+            color: #065f46; /* Green 800 */
+            border: 1px solid #34d399; /* Green 400 */
+        }
+        .error {
+            background-color: #fee2e2; /* Red 100 */
+            color: #991b1b; /* Red 800 */
+            border: 1px solid #f87171; /* Red 400 */
+        }
+        .loading {
+            background-color: #e0f2fe; /* Blue 100 */
+            color: #075985; /* Blue 800 */
+            border: 1px solid #38bdf8; /* Blue 400 */
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center p-4">
+
+    <!-- Main Content Card -->
+    <div id="main-content" class="w-full max-w-md bg-white p-6 md:p-10 rounded-xl shadow-2xl transition-all duration-300">
+        
+        <div class="text-center mb-6">
+            <!-- School Logo -->
+            <img src="https://img5.pic.in.th/file/secure-sv1/IMG_25650953161d1c1bbdd8.jpeg" 
+                 alt="โลโก้โรงเรียนสตรีพัทลุง" 
+                 class="h-24 w-24 object-contain mx-auto mb-4 rounded-full border-2 border-indigo-200 p-1 shadow-md"
+                 onerror="this.onerror=null; this.src='https://placehold.co/96x96/4f46e5/ffffff?text=LOGO';"
+            >
+            <h1 class="text-3xl font-extrabold text-gray-900">แก้ไขรหัสผ่าน</h1>
+            <p class="mt-2 text-sm text-gray-500">กรุณาตั้งรหัสผ่านใหม่สำหรับบัญชีของคุณ</p>
+        </div>
+
+        <!-- Form for Password Reset -->
+        <form id="resetPasswordForm" class="space-y-6">
+            
+            <div>
+                <label for="newPassword" class="block text-sm font-medium text-gray-700">รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)</label>
+                <div class="mt-1">
+                    <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" required
+                        class="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-base">
+                </div>
+            </div>
+
+            <div>
+                <label for="confirmPassword" class="block text-sm font-medium text-gray-700">ยืนยันรหัสผ่านใหม่</label>
+                <div class="mt-1">
+                    <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required
+                        class="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-base">
+                </div>
+            </div>
+
+            <!-- Message Area (for errors/success/loading) -->
+            <div id="messageArea">
+                <div id="initial-status" class="loading">
+                    กำลังตรวจสอบลิงก์การดำเนินการ...
+                </div>
+            </div>
+
+            <div>
+                <button type="submit" id="submitButton" disabled
+                    class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span id="buttonText">ตั้งรหัสผ่านใหม่</span>
+                </button>
+            </div>
+        </form>
+
+        <!-- Footer for copyright info -->
+        <div class="mt-8 text-center border-t pt-4 border-gray-100">
+            <p class="text-xs text-gray-400 mb-1">©️ 2024 SPT MORAL SCHOOL - โรงเรียนคุณธรรม สพฐ. โรงเรียนสตรีพัทลุง | All Rights Reserved</p>
+            <p class="text-xs text-gray-400">บริการโดย Firebase Authentication</p>
+        </div>
+    </div>
+
+    <!-- Error/Invalid Link Card (hidden by default) -->
+    <div id="error-link-card" class="hidden w-full max-w-md bg-white p-10 rounded-xl shadow-2xl text-center">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-red-500 mx-auto mb-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1-8a1 1 0 102 0V8a1 1 0 10-2 0v2zm1-5a1 1 0 100 2 1 1 0 000-2z" clip-rule="evenodd" />
+        </svg>
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">ลิงก์ไม่ถูกต้อง</h2>
+        <p class="text-gray-600">ลิงก์ที่คุณใช้ไม่ถูกต้องหรือหมดอายุแล้ว โปรดตรวจสอบ URL ของคุณหรือลองขอรีเซ็ตรหัสผ่านใหม่อีกครั้ง</p>
+    </div>
+
+
+    <script type="module">
+        // --- 1. Firebase Configuration and Imports ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, confirmPasswordReset } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Use the user-provided configuration
+        onst firebaseConfig = {
+  apiKey: "AIzaSyC1g1OTvol9087rKDDncS28uW0cSA-tSO8",
+  authDomain: "moral-contest.firebaseapp.com",
+  projectId: "moral-contest",
+  storageBucket: "moral-contest.firebasestorage.app",
+  messagingSenderId: "37936943967",
+  appId: "1:37936943967:web:57e6654d197e76dc8d9cea",
+  measurementId: "G-ZHFQM3WYE6"
+};
+        
+        // Initialize Firebase services
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        
+        // Set Firebase logging to Debug for troubleshooting
+        setLogLevel('Debug');
+
+
+        // --- 2. Element and URL Setup ---
+        const form = document.getElementById('resetPasswordForm');
+        const submitButton = document.getElementById('submitButton');
+        const buttonText = document.getElementById('buttonText');
+        const messageArea = document.getElementById('messageArea');
+        const initialStatus = document.getElementById('initial-status');
+        const newPasswordInput = document.getElementById('newPassword');
+        const confirmPasswordInput = document.getElementById('confirmPassword');
+        const mainContent = document.getElementById('main-content');
+        const errorLinkCard = document.getElementById('error-link-card');
+
+        // Extract URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const mode = urlParams.get('mode');
+        const oobCode = urlParams.get('oobCode');
+
+        /**
+         * Converts Firebase error codes into user-friendly Thai messages.
+         * @param {string} code - The Firebase error code (e.g., 'auth/invalid-action-code').
+         * @returns {string} User-friendly message.
+         */
+        function getFriendlyErrorMessage(code) {
+            switch (code) {
+                case 'auth/invalid-action-code':
+                    return 'ลิงก์นี้ไม่ถูกต้อง หมดอายุแล้ว หรือมีการใช้งานไปแล้ว';
+                case 'auth/user-disabled':
+                    return 'บัญชีผู้ใช้นี้ถูกระงับการใช้งาน';
+                case 'auth/user-not-found':
+                    return 'ไม่พบผู้ใช้ที่เกี่ยวข้องกับรหัสนี้';
+                case 'auth/weak-password':
+                    return 'รหัสผ่านอ่อนเกินไป กรุณาใช้รหัสผ่านที่มีความซับซ้อนอย่างน้อย 6 ตัวอักษร';
+                default:
+                    console.error("Firebase Error Code:", code);
+                    return 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ (โปรดตรวจสอบ Console)';
+            }
+        }
+
+        /**
+         * Function to display messages in the UI.
+         * @param {string} type - 'success', 'error', or 'loading'
+         * @param {string} message - The message to display.
+         */
+        function showMessage(type, message) {
+            messageArea.innerHTML = `<div class="message-box ${type}">${message}</div>`;
+        }
+
+        /**
+         * Handles the main password reset submission.
+         */
+        async function handlePasswordReset(e) {
+            e.preventDefault();
+            
+            const newPassword = newPasswordInput.value;
+            const confirmPassword = confirmPasswordInput.value;
+            
+            // 1. Client-side validation
+            if (newPassword.length < 6) {
+                showMessage('error', 'รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                showMessage('error', 'รหัสผ่านใหม่และการยืนยันไม่ตรงกัน');
+                return;
+            }
+
+            // 2. Show loading state
+            submitButton.disabled = true;
+            buttonText.textContent = 'กำลังดำเนินการ...';
+            showMessage('loading', 'กำลังตั้งรหัสผ่านใหม่...');
+            submitButton.classList.add('bg-gray-500', 'hover:bg-gray-500');
+            submitButton.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+
+
+            try {
+                // 3. Call Firebase SDK to reset password
+                // confirmPasswordReset will handle the validation of the oobCode
+                await confirmPasswordReset(auth, oobCode, newPassword);
+
+                // 4. Success state
+                showMessage('success', 
+                    'ตั้งรหัสผ่านสำเร็จ! คุณสามารถเข้าสู่ระบบด้วยรหัสผ่านใหม่ของคุณได้แล้ว'
+                );
+                // Disable form fields after success
+                form.querySelector('input').disabled = true;
+                form.classList.add('hidden'); 
+
+            } catch (error) {
+                // 5. Error handling
+                console.error("Firebase Auth Error:", error);
+                const errorMessage = getFriendlyErrorMessage(error.code);
+                showMessage('error', `เกิดข้อผิดพลาด: ${errorMessage}`);
+                
+            } finally {
+                // 6. Reset button state if form is not hidden
+                if (!form.classList.contains('hidden')) {
+                    submitButton.disabled = false;
+                    buttonText.textContent = 'ตั้งรหัสผ่านใหม่';
+                    submitButton.classList.remove('bg-gray-500', 'hover:bg-gray-500');
+                    submitButton.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                }
+            }
+        }
+
+
+        // --- 4. Initialization and Action Check ---
+        
+        function init() {
+            // Check if URL parameters are correct for password reset action
+            if (mode === 'resetPassword' && oobCode) {
+                // If the link seems valid, enable the form and remove the loading status
+                initialStatus.remove();
+                submitButton.disabled = false;
+                form.addEventListener('submit', handlePasswordReset);
+                
+                // Optional: You could use checkActionCode(auth, oobCode) here 
+                // to pre-validate the link before showing the form, but it's simpler 
+                // (and often better UX) to let confirmPasswordReset handle the final validation.
+                
+            } else {
+                // If the URL is missing mode or oobCode, show the error card
+                mainContent.classList.add('hidden');
+                errorLinkCard.classList.remove('hidden');
+            }
+        }
+
+        // Start the initialization process
+        init();
+    </script>
+</body>
+</html>
