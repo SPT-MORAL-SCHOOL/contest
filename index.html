@@ -79,6 +79,12 @@
         let currentUserData = null;
         let tempAssignUid = null;
         let isMobileMenuOpen = false;
+        // เพิ่มตัวแปรเหล่านี้ไว้ด้านบน
+let unsubscribeJudgeScores = null;
+let unsubscribeAdminScores = null;
+let unsubscribeUsers = null;
+let unsubscribeLinks = null;
+
 
         // --- FULL CRITERIA TEXTS ---
         const criteriaTexts = [
@@ -296,48 +302,61 @@
         // --- JUDGE DASHBOARD ---
 
         async function loadJudgeDashboard() {
-            renderLinks('judge-links-list', false);
-            const container = document.getElementById('judge-assigned-list');
-            container.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-blue-500 text-2xl"></i><p class="text-gray-500 mt-2">กำลังโหลดข้อมูล...</p></div>';
-            
-            const assigned = currentUserData.assignedLevels || [];
-            const levelSelect = document.getElementById('score-level');
-            const roomSelect = document.getElementById('score-room');
-            levelSelect.innerHTML = '<option value="">เลือกระดับชั้น</option>';
-            roomSelect.innerHTML = '<option value="">เลือกห้อง</option>';
-            assigned.forEach(lvl => levelSelect.innerHTML += `<option value="${lvl}">${lvl}</option>`);
-            for(let i=1; i<=12; i++) roomSelect.innerHTML += `<option value="${i}">ห้อง ${i}</option>`;
+    renderLinks('judge-links-list', false);
+    const container = document.getElementById('judge-assigned-list');
+    
+    // เคลียร์ listener เดิมถ้ามีอยู่
+    if (unsubscribeJudgeScores) unsubscribeJudgeScores();
 
-            const q = query(collection(db, "scores"), where("judgeId", "==", currentUserData.uid));
-            const snapshot = await getDocs(q);
-            
-            if (snapshot.empty) { container.innerHTML = '<div class="py-12 text-center text-gray-400 w-full col-span-full bg-white/50 rounded-xl border border-dashed border-gray-300">ยังไม่มีประวัติการให้คะแนน</div>'; return; }
-            
-            let html = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">`;
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                const json = encodeURIComponent(JSON.stringify(data));
-                html += `
-                    <div class="glass-card p-4 shadow-sm border border-gray-100 relative overflow-hidden group hover:shadow-md transition-all">
-                        <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                        <div class="flex justify-between items-start pl-3">
-                            <div>
-                                <h3 class="font-bold text-gray-800 text-lg">${data.level} ห้อง ${data.room}</h3>
-                                <p class="text-xs text-gray-400 mt-1"><i class="far fa-clock"></i> ${new Date(data.timestamp.seconds*1000).toLocaleDateString('th-TH')}</p>
-                            </div>
-                            <div class="text-right">
-                                <span class="text-2xl font-bold text-blue-600 block leading-none">${data.total}</span>
-                                <span class="text-[10px] text-gray-400">คะแนน</span>
-                            </div>
-                        </div>
-                        <button onclick="openDetailModal('${json}')" class="w-full mt-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition flex justify-center items-center gap-2">
-                            <i class="fas fa-search-plus"></i> ดูรายละเอียด
-                        </button>
-                    </div>`;
-            });
-            container.innerHTML = html + '</div>';
-            updateSystemStatusUI();
+    container.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-blue-500 text-2xl"></i><p class="text-gray-500 mt-2">กำลังโหลดข้อมูล...</p></div>';
+    
+    const assigned = currentUserData.assignedLevels || [];
+    const levelSelect = document.getElementById('score-level');
+    const roomSelect = document.getElementById('score-room');
+    
+    // (ส่วนสร้าง Option level/room เหมือนเดิม...)
+    levelSelect.innerHTML = '<option value="">เลือกระดับชั้น</option>';
+    roomSelect.innerHTML = '<option value="">เลือกห้อง</option>';
+    assigned.forEach(lvl => levelSelect.innerHTML += `<option value="${lvl}">${lvl}</option>`);
+    for(let i=1; i<=12; i++) roomSelect.innerHTML += `<option value="${i}">ห้อง ${i}</option>`;
+
+    const q = query(collection(db, "scores"), where("judgeId", "==", currentUserData.uid));
+    
+    // เปลี่ยน getDocs เป็น onSnapshot
+    unsubscribeJudgeScores = onSnapshot(q, (snapshot) => {
+        if (snapshot.empty) { 
+            container.innerHTML = '<div class="py-12 text-center text-gray-400 w-full col-span-full bg-white/50 rounded-xl border border-dashed border-gray-300">ยังไม่มีประวัติการให้คะแนน</div>'; 
+            return;
         }
+        
+        let html = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">`;
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const json = encodeURIComponent(JSON.stringify(data));
+            // (HTML การ์ดแสดงผลเหมือนเดิม...)
+            html += `
+                <div class="glass-card p-4 shadow-sm border border-gray-100 relative overflow-hidden group hover:shadow-md transition-all">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                    <div class="flex justify-between items-start pl-3">
+                        <div>
+                            <h3 class="font-bold text-gray-800 text-lg">${data.level} ห้อง ${data.room}</h3>
+                            <p class="text-xs text-gray-400 mt-1"><i class="far fa-clock"></i> ${new Date(data.timestamp.seconds*1000).toLocaleDateString('th-TH')}</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-2xl font-bold text-blue-600 block leading-none">${data.total}</span>
+                            <span class="text-[10px] text-gray-400">คะแนน</span>
+                        </div>
+                    </div>
+                    <button onclick="openDetailModal('${json}')" class="w-full mt-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition flex justify-center items-center gap-2">
+                        <i class="fas fa-search-plus"></i> ดูรายละเอียด
+                    </button>
+                </div>`;
+        });
+        container.innerHTML = html + '</div>';
+        updateSystemStatusUI();
+    });
+}
+
 
         window.goToScoring = () => {
             if(!isSystemOpen()) { alert("ขออภัย ระบบปิดรับคะแนนแล้ว"); return; }
@@ -397,27 +416,35 @@
 
         // Users
         async function renderUserManagement() {
-            const list = document.getElementById('admin-user-list');
-            list.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500"></i></div>';
-            const snap = await getDocs(query(collection(db, "users")));
-            let html = '<div class="overflow-x-auto rounded-lg border border-gray-100"><table class="w-full text-sm text-left text-gray-500 whitespace-nowrap"><thead class="bg-blue-50 text-xs text-gray-700 uppercase"><tr><th class="px-4 py-3">ชื่อ</th><th class="px-4 py-3">สถานะ</th><th class="px-4 py-3">มอบหมาย</th><th class="px-4 py-3">จัดการ</th></tr></thead><tbody class="divide-y divide-gray-100">';
-            snap.forEach(d => {
-                const u = d.data(); if(u.role==='admin') return;
-                const isPending = u.role === 'pending';
-                const statusBadge = isPending ? `<span class="bg-yellow-100 text-yellow-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-yellow-200">รออนุมัติ</span>` : `<span class="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-green-200">อนุมัติแล้ว</span>`;
-                html += `<tr class="bg-white hover:bg-gray-50">
-                    <td class="px-4 py-3 font-medium text-gray-900">${u.name}<br><span class="text-xs text-gray-400">${u.email}</span></td>
-                    <td class="px-4 py-3">${statusBadge}</td>
-                    <td class="px-4 py-3"><div class="max-w-[100px] truncate text-xs bg-gray-100 px-2 py-1 rounded">${(u.assignedLevels||[]).join(',')}</div></td>
-                    <td class="px-4 py-3 flex gap-2">
-                        ${isPending?`<button onclick="approveUser('${u.uid}')" class="text-green-600 bg-green-50 p-2 rounded hover:bg-green-100" title="อนุมัติ"><i class="fas fa-check"></i></button>`:''} 
-                        <button onclick="openAssignModal('${u.uid}','${u.name}','${(u.assignedLevels||[]).join(',')}')" class="text-blue-600 bg-blue-50 p-2 rounded hover:bg-blue-100" title="มอบหมาย"><i class="fas fa-tasks"></i></button>
-                        <button onclick="deleteUser('${u.uid}','${u.name}')" class="text-red-500 bg-red-50 p-2 rounded hover:bg-red-100" title="ลบผู้ใช้"><i class="fas fa-trash-alt"></i></button>
-                    </td>
-                </tr>`;
-            });
-            list.innerHTML = html + '</tbody></table></div>';
-        }
+    const list = document.getElementById('admin-user-list');
+    
+    if (unsubscribeUsers) unsubscribeUsers();
+
+    unsubscribeUsers = onSnapshot(query(collection(db, "users")), (snap) => {
+        let html = '<div class="overflow-x-auto rounded-lg border border-gray-100"><table class="w-full text-sm text-left text-gray-500 whitespace-nowrap"><thead class="bg-blue-50 text-xs text-gray-700 uppercase"><tr><th class="px-4 py-3">ชื่อ</th><th class="px-4 py-3">สถานะ</th><th class="px-4 py-3">มอบหมาย</th><th class="px-4 py-3">จัดการ</th></tr></thead><tbody class="divide-y divide-gray-100">';
+        
+        snap.forEach(d => {
+            const u = d.data(); 
+            if(u.role==='admin') return;
+            // ... (Logic สร้าง row เหมือนเดิมเป๊ะๆ) ...
+            const isPending = u.role === 'pending';
+            const statusBadge = isPending ? `<span class="bg-yellow-100 text-yellow-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-yellow-200">รออนุมัติ</span>` : `<span class="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-green-200">อนุมัติแล้ว</span>`;
+            
+            html += `<tr class="bg-white hover:bg-gray-50">
+                <td class="px-4 py-3 font-medium text-gray-900">${u.name}<br><span class="text-xs text-gray-400">${u.email}</span></td>
+                <td class="px-4 py-3">${statusBadge}</td>
+                <td class="px-4 py-3"><div class="max-w-[100px] truncate text-xs bg-gray-100 px-2 py-1 rounded">${(u.assignedLevels||[]).join(',')}</div></td>
+                <td class="px-4 py-3 flex gap-2">
+                    ${isPending?`<button onclick="approveUser('${u.uid}')" class="text-green-600 bg-green-50 p-2 rounded hover:bg-green-100" title="อนุมัติ"><i class="fas fa-check"></i></button>`:''} 
+                    <button onclick="openAssignModal('${u.uid}','${u.name}','${(u.assignedLevels||[]).join(',')}')" class="text-blue-600 bg-blue-50 p-2 rounded hover:bg-blue-100" title="มอบหมาย"><i class="fas fa-tasks"></i></button>
+                    <button onclick="deleteUser('${u.uid}','${u.name}')" class="text-red-500 bg-red-50 p-2 rounded hover:bg-red-100" title="ลบผู้ใช้"><i class="fas fa-trash-alt"></i></button>
+                </td>
+            </tr>`;
+        });
+        list.innerHTML = html + '</tbody></table></div>';
+    });
+}
+
         window.approveUser = async(uid)=>{ if(confirm('ยืนยันอนุมัติ?')) await updateDoc(doc(db,"users",uid),{role:'judge'}); renderUserManagement();}
         window.openAssignModal = (uid,name,lvlStr)=>{ tempAssignUid=uid; document.getElementById('assign-name').textContent=name; const lvls=lvlStr.split(','); ['ม.1','ม.2','ม.3','ม.4','ม.5','ม.6'].forEach(l=>document.getElementById(`chk-${l}`).checked=lvls.includes(l)); document.getElementById('assign-modal').classList.remove('hidden');}
         window.closeAssignModal = ()=>document.getElementById('assign-modal').classList.add('hidden');
@@ -452,19 +479,33 @@
         }
 
         async function renderScoreReport() {
-            const container = document.getElementById('admin-score-list');
-            container.innerHTML = '<div class="text-center py-6 text-gray-500">กำลังโหลดข้อมูล...</div>';
-            const levelFilter = document.getElementById('admin-filter-level').value;
-            const snapshot = await getDocs(query(collection(db, "scores")));
-            
-            const docs = [];
-            snapshot.forEach(d => {
-                const data = d.data();
-                data.id = d.id; // Include Doc ID for edit/delete
-                if(levelFilter === 'ALL' || data.level === levelFilter) docs.push(data);
-            });
+    const container = document.getElementById('admin-score-list');
+    
+    // ถ้ายังไม่มีการ loading ครั้งแรก ให้แสดง spinner
+    if(!container.innerHTML.includes('table')) {
+         container.innerHTML = '<div class="text-center py-6 text-gray-500">กำลังโหลดข้อมูล...</div>';
+    }
 
-            if(docs.length === 0) { container.innerHTML = '<div class="text-center py-6 text-gray-400">ไม่พบข้อมูลคะแนน</div>'; return; }
+    const levelFilter = document.getElementById('admin-filter-level').value;
+
+    // เคลียร์ listener เดิม
+    if (unsubscribeAdminScores) unsubscribeAdminScores();
+
+    unsubscribeAdminScores = onSnapshot(query(collection(db, "scores")), (snapshot) => {
+        const docs = [];
+        snapshot.forEach(d => {
+            const data = d.data();
+            data.id = d.id; 
+            if(levelFilter === 'ALL' || data.level === levelFilter) docs.push(data);
+        });
+
+        if(docs.length === 0) { 
+            container.innerHTML = '<div class="text-center py-6 text-gray-400">ไม่พบข้อมูลคะแนน</div>'; 
+            return;
+        }
+
+        
+
 
             if (isAdminViewSummary) {
                 const levels = ['ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
