@@ -173,53 +173,57 @@ function initSystemStatusListener() {
         }
 
         function updateSystemStatusUI() {
-            const statusIndicators = document.querySelectorAll('.system-status-indicator');
-            const open = isSystemOpen();
+    // จัดการปุ่ม Submit
+    const submitBtn = document.getElementById('submit-score-btn');
+    const formInputs = document.querySelectorAll('#score-form input, #score-form select, #score-form textarea');
+    
+    if (submitBtn) {
+        if (isSystemOpen) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-save mr-2"></i> บันทึกคะแนน';
+            submitBtn.classList.remove('bg-gray-400', 'cursor-not-allowed');
+            submitBtn.classList.add('bg-primary-600', 'hover:bg-primary-700', 'shadow-lg');
             
-            statusIndicators.forEach(el => {
-                if(open) {
-                    el.innerHTML = '<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-bold shadow-sm border border-green-200 flex items-center gap-1 animate-pulse"><i class="fas fa-circle text-[6px]"></i> เปิดรับคะแนน</span>';
-                } else {
-                    el.innerHTML = '<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-bold shadow-sm border border-red-200 flex items-center gap-1"><i class="fas fa-lock text-[8px]"></i> ปิดรับคะแนน</span>';
-                }
-            });
-
-            // Update Admin Inputs
-            const chkManual = document.getElementById('chk-manual-open');
-            const chkAuto = document.getElementById('chk-auto-timer');
-            const dateStart = document.getElementById('date-start');
-            const dateEnd = document.getElementById('date-end');
-
-            if (chkManual) {
-                chkManual.checked = systemConfig.isOpen;
-                chkAuto.checked = systemConfig.isAuto;
-                dateStart.value = systemConfig.startTime || "";
-                dateEnd.value = systemConfig.endTime || "";
-                
-                chkManual.disabled = systemConfig.isAuto;
-                dateStart.disabled = !systemConfig.isAuto;
-                dateEnd.disabled = !systemConfig.isAuto;
-                
-                document.getElementById('manual-control-group').style.opacity = systemConfig.isAuto ? '0.5' : '1';
-                document.getElementById('auto-control-group').style.opacity = systemConfig.isAuto ? '1' : '0.5';
-            }
+            // ปลดล็อค input ทั้งหมด
+            formInputs.forEach(input => input.disabled = false);
+        } else {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-lock mr-2"></i> ระบบปิดรับคะแนนแล้ว';
+            submitBtn.classList.remove('bg-primary-600', 'hover:bg-primary-700', 'shadow-lg');
+            submitBtn.classList.add('bg-gray-400', 'cursor-not-allowed');
             
-            // Update Judge Button
-            const judgeBtn = document.getElementById('btn-judge-start');
-            if(judgeBtn) {
-                if(open) {
-                    judgeBtn.disabled = false;
-                    judgeBtn.classList.remove('bg-gray-400', 'cursor-not-allowed');
-                    judgeBtn.classList.add('btn-primary', 'transform', 'active:scale-95');
-                    judgeBtn.innerHTML = '<i class="fas fa-plus-circle text-lg"></i> <span class="font-bold">ประเมินห้องใหม่</span>';
-                } else {
-                    judgeBtn.disabled = true;
-                    judgeBtn.classList.remove('btn-primary', 'transform', 'active:scale-95');
-                    judgeBtn.classList.add('bg-gray-400', 'cursor-not-allowed');
-                    judgeBtn.innerHTML = '<i class="fas fa-lock text-lg"></i> <span class="font-bold">ปิดรับคะแนน</span>';
-                }
+            // ล็อค input ทั้งหมดเพื่อกันแก้ไขข้อมูลค้างไว้
+            formInputs.forEach(input => input.disabled = true);
+        }
+    }
+
+    // จัดการ Alert แจ้งเตือนด้านบน (ถ้ามี)
+    const alertBox = document.getElementById('system-closed-alert');
+    if (!isSystemOpen) {
+        if (!alertBox) {
+            // สร้างกล่องแจ้งเตือนถ้ายังไม่มี
+            const dashboard = document.getElementById('judge-assigned-list')?.parentNode;
+            if(dashboard) {
+                const alertDiv = document.createElement('div');
+                alertDiv.id = 'system-closed-alert';
+                alertDiv.className = 'mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm animate-pulse';
+                alertDiv.innerHTML = `
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0"><i class="fas fa-exclamation-circle text-red-500 text-xl"></i></div>
+                        <div class="ml-3">
+                            <p class="text-sm text-red-700 font-bold">ระบบปิดรับการประเมินแล้ว</p>
+                            <p class="text-xs text-red-600">คุณสามารถดูประวัติคะแนนได้ แต่ไม่สามารถเพิ่มหรือแก้ไขคะแนนได้ในขณะนี้</p>
+                        </div>
+                    </div>`;
+                dashboard.insertBefore(alertDiv, dashboard.firstChild);
             }
         }
+    } else {
+        // ถ้าระบบเปิดแล้ว ให้ลบกล่องแจ้งเตือนออก
+        if (alertBox) alertBox.remove();
+    }
+}
+
 
         // --- AUTHENTICATION ---
 
