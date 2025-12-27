@@ -88,6 +88,44 @@ let unsubscribeLinks = null;
 let unsubscribeLinks = null;
         // ประกาศตัวแปร global ไว้บนสุด
 let unsubscribeUserDoc = null;
+        // 1. เพิ่มตัวแปรสำหรับเก็บ Listener ของ System Status
+let unsubscribeSystemStatus = null;
+let isSystemOpen = true; // ค่าเริ่มต้น
+
+// 2. เพิ่มฟังก์ชันหลักสำหรับดักฟังสถานะระบบ (วางไว้ส่วนบนๆ ของ script หรือก่อน onAuthStateChanged)
+function initSystemStatusListener() {
+    // ถ้าเคยดักฟังอยู่แล้ว ให้ข้ามไป (ป้องกันการทำงานซ้ำ)
+    if (unsubscribeSystemStatus) return;
+
+    const docRef = doc(db, "config", "system_status");
+    
+    unsubscribeSystemStatus = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+            isSystemOpen = docSnap.data().isOpen;
+        } else {
+            // กรณีเข้าครั้งแรกแล้วยังไม่มี data ให้สร้างค่าเริ่มต้น
+            setDoc(docRef, { isOpen: true });
+            isSystemOpen = true;
+        }
+
+        // --- ส่วนอัปเดตหน้าจอทันที (Real-time UI) ---
+
+        // 1. อัปเดตหน้าจอของกรรมการ (Judge)
+        updateSystemStatusUI(); 
+
+        // 2. อัปเดตสวิตช์หน้าแอดมิน (Admin) ถ้ากำลังเปิดหน้านั้นอยู่
+        const adminToggle = document.getElementById('system-status-toggle');
+        const adminLabel = document.getElementById('system-status-label');
+        if (adminToggle) {
+            adminToggle.checked = isSystemOpen;
+            if(adminLabel) {
+                adminLabel.textContent = isSystemOpen ? 'เปิดรับการประเมิน' : 'ปิดรับการประเมิน';
+                adminLabel.className = isSystemOpen ? 'text-sm font-medium text-green-600' : 'text-sm font-medium text-red-600';
+            }
+        }
+    });
+}
+
 
 
         // --- FULL CRITERIA TEXTS ---
@@ -228,6 +266,7 @@ onAuthStateChanged(auth, (user) => {
     }
 
     if (user) {
+        initSystemStatusListener();
         // เปลี่ยน getDoc เป็น onSnapshot เพื่อดักฟังการเปลี่ยนแปลงข้อมูลสิทธิ์ทันที
         unsubscribeUserDoc = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
             if (docSnap.exists()) {
@@ -271,10 +310,15 @@ onAuthStateChanged(auth, (user) => {
                 }
                 updateSystemStatusUI();
             } else {
+                
                 signOut(auth);
             }
         });
     } else {
+        if (unsubscribeSystemStatus) {
+            unsubscribeSystemStatus();
+            unsubscribeSystemStatus = null;
+        }
         currentUserData = null;
         authWrapper.classList.add('hidden');
         toggleMobileMenu(false);
