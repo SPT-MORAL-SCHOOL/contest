@@ -84,6 +84,10 @@ let unsubscribeJudgeScores = null;
 let unsubscribeAdminScores = null;
 let unsubscribeUsers = null;
 let unsubscribeLinks = null;
+        // ประกาศตัวแปร global ไว้บนสุด (รวมกับตัวอื่นๆ)
+let unsubscribeLinks = null;
+        // ประกาศตัวแปร global ไว้บนสุด
+let unsubscribeUserDoc = null;
 
 
         // --- FULL CRITERIA TEXTS ---
@@ -212,36 +216,72 @@ let unsubscribeLinks = null;
             }
         };
 
-        onAuthStateChanged(auth, async (user) => {
-            const authWrapper = document.getElementById('auth-wrapper');
-            if (user) {
-                const docSnap = await getDoc(doc(db, "users", user.uid));
-                if (docSnap.exists()) {
-                    currentUserData = docSnap.data();
-                    document.querySelectorAll('.user-name-display').forEach(el => el.textContent = currentUserData.name);
-                    authWrapper.classList.remove('hidden');
+        
 
-                    if (currentUserData.role === 'admin') {
-                        document.querySelectorAll('.admin-link').forEach(el => el.classList.remove('hidden'));
+onAuthStateChanged(auth, (user) => {
+    const authWrapper = document.getElementById('auth-wrapper');
+    
+    // เคลียร์ listener เดิมเมื่อสถานะ auth เปลี่ยน (เช่น logout)
+    if (unsubscribeUserDoc) {
+        unsubscribeUserDoc();
+        unsubscribeUserDoc = null;
+    }
+
+    if (user) {
+        // เปลี่ยน getDoc เป็น onSnapshot เพื่อดักฟังการเปลี่ยนแปลงข้อมูลสิทธิ์ทันที
+        unsubscribeUserDoc = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+            if (docSnap.exists()) {
+                currentUserData = docSnap.data();
+                
+                // อัปเดตชื่อที่แสดง
+                document.querySelectorAll('.user-name-display').forEach(el => el.textContent = currentUserData.name);
+                authWrapper.classList.remove('hidden');
+
+                // ตรวจสอบ Role และอัปเดต UI ทันที
+                if (currentUserData.role === 'admin') {
+                    document.querySelectorAll('.admin-link').forEach(el => el.classList.remove('hidden'));
+                    // เรียก Dashboard เฉพาะตอนโหลดครั้งแรก หรือเมื่อ role เปลี่ยนจริงๆ เท่านั้นเพื่อป้องกันการโหลดซ้ำ
+                    if(document.getElementById('admin-section').classList.contains('hidden') && 
+                       document.getElementById('dashboard-section').classList.contains('hidden')) {
                         loadAdminDashboard();
                         showSection('admin-section');
-                    } else if (currentUserData.role === 'judge') {
-                        document.querySelectorAll('.admin-link').forEach(el => el.classList.add('hidden'));
+                    }
+                } else if (currentUserData.role === 'judge') {
+                    document.querySelectorAll('.admin-link').forEach(el => el.classList.add('hidden'));
+                    
+                    // *** ไฮไลท์: อัปเดต Dropdown ระดับชั้นทันที ถ้าอยู่ในหน้า Dashboard ***
+                    const levelSelect = document.getElementById('score-level');
+                    if(levelSelect) {
+                         const currentVal = levelSelect.value; // เก็บค่าเดิมไว้
+                         levelSelect.innerHTML = '<option value="">เลือกระดับชั้น</option>';
+                         (currentUserData.assignedLevels || []).forEach(lvl => {
+                             levelSelect.innerHTML += `<option value="${lvl}">${lvl}</option>`;
+                         });
+                         levelSelect.value = currentVal; // คืนค่าเดิมถ้ายังมีสิทธิ์อยู่
+                    }
+                    
+                    // โหลดหน้านี้ถ้าเพิ่ง login
+                    if(document.getElementById('dashboard-section').classList.contains('hidden')) {
                         loadJudgeDashboard();
                         showSection('dashboard-section');
-                    } else {
-                        authWrapper.classList.add('hidden');
-                        showSection('pending-section');
                     }
-                    updateSystemStatusUI();
-                } else { await signOut(auth); }
+                } else {
+                    authWrapper.classList.add('hidden');
+                    showSection('pending-section');
+                }
+                updateSystemStatusUI();
             } else {
-                currentUserData = null;
-                authWrapper.classList.add('hidden');
-                toggleMobileMenu(false);
-                showSection('login-section');
+                signOut(auth);
             }
         });
+    } else {
+        currentUserData = null;
+        authWrapper.classList.add('hidden');
+        toggleMobileMenu(false);
+        showSection('login-section');
+    }
+});
+
 
         // --- SYSTEM CONTROL ---
 
@@ -262,27 +302,40 @@ let unsubscribeLinks = null;
 
         // --- LINKS MANAGEMENT ---
 
-        async function renderLinks(targetElementId, isAdmin = false) {
-            const container = document.getElementById(targetElementId);
-            const q = query(collection(db, "assessment_links"), orderBy("createdAt", "desc"));
-            const snapshot = await getDocs(q);
-            if (snapshot.empty) { container.innerHTML = '<div class="text-center py-2 text-gray-400 text-sm italic">ยังไม่มีลิงก์ประกอบการประเมิน</div>'; return; }
-            let html = '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">';
-            snapshot.forEach(doc => {
-                const link = doc.data();
-                html += `
-                    <div class="bg-white border border-gray-100 p-3 rounded-xl shadow-sm flex justify-between items-center group hover:shadow-md transition">
-                        <a href="${link.url}" target="_blank" class="flex items-center gap-3 text-primary-700 font-medium hover:underline flex-grow truncate">
-                            <div class="bg-blue-50 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-blue-500 shadow-inner">
-                                <i class="fas fa-link"></i>
-                            </div>
-                            <span class="truncate">${link.title}</span>
-                        </a>
-                        ${isAdmin ? `<button onclick="deleteLink('${doc.id}')" class="text-gray-300 hover:text-red-500 p-2 transition"><i class="fas fa-trash-alt"></i></button>` : ''}
-                    </div>`;
-            });
-            container.innerHTML = html + '</div>';
+
+
+async function renderLinks(targetElementId, isAdmin = false) {
+    const container = document.getElementById(targetElementId);
+    
+    // ยกเลิกการดักฟังอันเก่า (ถ้ามี) เพื่อป้องกันการทำงานซ้ำซ้อน
+    if (unsubscribeLinks) unsubscribeLinks();
+
+    const q = query(collection(db, "assessment_links"), orderBy("createdAt", "desc"));
+    
+    // เปลี่ยน getDocs เป็น onSnapshot
+    unsubscribeLinks = onSnapshot(q, (snapshot) => {
+        if (snapshot.empty) { 
+            container.innerHTML = '<div class="text-center py-2 text-gray-400 text-sm italic">ยังไม่มีลิงก์ประกอบการประเมิน</div>'; 
+            return;
         }
+        
+        let html = '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">';
+        snapshot.forEach(doc => {
+            const link = doc.data();
+            html += `
+                <div class="bg-white border border-gray-100 p-3 rounded-xl shadow-sm flex justify-between items-center group hover:shadow-md transition">
+                    <a href="${link.url}" target="_blank" class="flex items-center gap-3 text-primary-700 font-medium hover:underline flex-grow truncate">
+                        <div class="bg-blue-50 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-blue-500 shadow-inner">
+                            <i class="fas fa-link"></i>
+                        </div>
+                        <span class="truncate">${link.title}</span>
+                    </a>
+                    ${isAdmin ? `<button onclick="deleteLink('${doc.id}')" class="text-gray-300 hover:text-red-500 p-2 transition"><i class="fas fa-trash-alt"></i></button>` : ''}
+                </div>`;
+        });
+        container.innerHTML = html + '</div>';
+    });
+}
 
         window.handleAddLink = async (e) => {
             e.preventDefault();
